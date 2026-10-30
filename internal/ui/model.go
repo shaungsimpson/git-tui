@@ -16,6 +16,7 @@ import (
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
+	"github.com/shaungsimpson/git-tui/internal/termimg"
 )
 
 type viewID int
@@ -120,10 +121,38 @@ type compareState struct {
 
 // diffState is the full-width view of one repository's uncommitted changes.
 type diffState struct {
-	open bool
-	repo int // indexes Model.repos
-	res  slot[[]string]
-	off  int
+	open  bool
+	repo  int // indexes Model.repos
+	title string
+	res   slot[[]string]
+	off   int
+}
+
+// picState is one PR-body picture: loading, stored in the terminal, or the reason it is not shown.
+// placed is the width it is currently placed at; a resize sends a new placement, never the image again.
+type picState struct {
+	loading bool
+	pic     termimg.Picture
+	err     error
+	placed  int
+}
+
+type picMsg struct {
+	url string
+	pic termimg.Picture
+	err error
+}
+
+// picBase keeps this app's terminal image IDs ("gt", for git-tui) apart from other programs' in the same terminal.
+const picBase = 0x677400
+
+// fetchPic downloads and encodes one picture; a variable so tests never touch the network.
+var fetchPic = func(ctx context.Context, url string, id int) (termimg.Picture, error) {
+	data, err := termimg.Download(ctx, url)
+	if err != nil {
+		return termimg.Picture{}, err
+	}
+	return termimg.Encode(data, id)
 }
 
 // envRow is one environment of one repository; repo indexes Model.repos.
@@ -139,6 +168,7 @@ type Options struct {
 	ConfigPath string
 	ConfigErr  error
 	Demo       bool
+	Images     bool // the terminal draws Kitty graphics placeholders
 	Tools      map[string]string
 }
 
@@ -160,6 +190,8 @@ type Model struct {
 	detOff  int
 	cmp     compareState
 	diff    diffState
+	pics    map[string]*picState // by picture link
+	picIDs  int
 
 	filters   [viewCount]string
 	input     textinput.Model
@@ -179,7 +211,7 @@ type Model struct {
 }
 
 func New(o Options) *Model {
-	m := &Model{opts: o, dark: true, focus: paneMain}
+	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}}
 	for _, r := range o.Repos {
 		m.repos = append(m.repos, repoState{cfg: r})
 	}
@@ -210,13 +242,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inspect = true // the details pane is gone; show details in place of the list
 		}
 		m.clampAll()
+		return m, m.ensurePics() // pictures are encoded for the pane width
 	case tea.BackgroundColorMsg:
 		if !m.themeSet {
 			m.setTheme(msg.IsDark())
 		}
 	case tea.KeyPressMsg:
 		// Any key can reveal a running deploy (view, repository, filter), so check whether to start watching.
-		return m, tea.Batch(m.handleKey(msg), m.schedulePoll())
+		return m, tea.Batch(m.handleKey(msg), m.schedulePoll(), m.ensurePics())
 	case tea.PasteMsg:
 		// Only an open text input accepts pasted text; it never reaches workspace shortcuts.
 		if m.filtering {
@@ -224,6 +257,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input, cmd = m.input.Update(msg)
 			m.setFilter(m.input.Value())
 			return m, tea.Batch(cmd, m.schedulePoll())
+		}
+	case picMsg:
+		if st, ok := m.pics[msg.url]; ok {
+			st.loading, st.pic, st.err = false, msg.pic, msg.err
+			if msg.err == nil {
+				cols := m.picCols()
+				send := msg.pic.Transmit + msg.pic.Place(cols)
+				st.pic.Transmit, st.placed = "", cols // stored in the terminal now; no need to keep the bytes
+				return m, tea.Raw(send)
+			}
 		}
 	case browserMsg:
 		if msg.err != nil {
@@ -248,7 +291,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 	case resultMsg:
-		return m, m.applyResult(msg)
+		return m, tea.Batch(m.applyResult(msg), m.ensurePics()) // a PR list arriving can reveal pictures
 	default:
 		if m.filtering {
 			var cmd tea.Cmd
@@ -263,6 +306,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	s := msg.String()
 	if s == "ctrl+c" {
 		m.cancel()
+		if free := m.freePics(); free != nil {
+			return tea.Sequence(free, tea.Quit)
+		}
 		return tea.Quit
 	}
 	m.flash = ""
@@ -363,13 +409,23 @@ func (m *Model) do(id actionID) tea.Cmd {
 		m.utc = !m.utc
 		m.flash = "Times now shown in " + m.zone() + "."
 	case actDiff:
+		src := m.opts.Source
+		if p, ok := m.selectedPR(); ok {
+			i := slices.IndexFunc(m.repos, func(r repoState) bool { return r.cfg.Name == p.Repo })
+			if i < 0 {
+				return nil
+			}
+			name, dir, num := m.repos[i].cfg.Name, m.repos[i].cfg.Path, p.Number
+			return m.openDiff(i, "Pull request #"+strconv.Itoa(num)+" · "+clean(name), func(ctx context.Context) ([]string, error) {
+				return src.PRDiff(ctx, name, dir, num)
+			})
+		}
 		i := m.diffTarget()
 		if i < 0 {
 			return nil
 		}
-		m.diff = diffState{open: true, repo: i, res: slot[[]string]{gen: m.diff.res.gen + 1}}
-		src, name, dir := m.opts.Source, m.repos[i].cfg.Name, m.repos[i].cfg.Path
-		return start(m, &m.diff.res, true, kindDiff, i, func(ctx context.Context) ([]string, error) { return src.Diff(ctx, name, dir) })
+		name, dir := m.repos[i].cfg.Name, m.repos[i].cfg.Path
+		return m.openDiff(i, "Uncommitted changes · "+clean(name), func(ctx context.Context) ([]string, error) { return src.Diff(ctx, name, dir) })
 	case actBrowse:
 		url, what := m.browseTarget()
 		if !strings.HasPrefix(url, "https://") { // the link comes from GitHub data; never hand other schemes to the OS
@@ -402,7 +458,92 @@ func (m *Model) diffTarget() int {
 	return i
 }
 
-func (m *Model) canDiff() bool { return m.diffTarget() >= 0 }
+func (m *Model) canDiff() bool {
+	_, pr := m.selectedPR()
+	return pr || m.diffTarget() >= 0
+}
+
+// selectedPR is the pull request under the cursor when the PR list (not the sidebar) has focus.
+func (m *Model) selectedPR() (gitx.PR, bool) {
+	if m.view != viewPRs || m.focus == paneSidebar {
+		return gitx.PR{}, false
+	}
+	n, cur, _ := m.list()
+	if n == 0 {
+		return gitx.PR{}, false
+	}
+	return m.prList()[*cur], true
+}
+
+func (m *Model) openDiff(repo int, title string, fetch func(context.Context) ([]string, error)) tea.Cmd {
+	m.diff = diffState{open: true, repo: repo, title: title, res: slot[[]string]{gen: m.diff.res.gen + 1}}
+	return start(m, &m.diff.res, true, kindDiff, repo, fetch)
+}
+
+// picCols is how wide PR-body pictures are drawn: the details pane, or the list area when details replace it.
+func (m *Model) picCols() int {
+	l := m.layout()
+	w := l.detailW
+	if w == 0 {
+		w = l.mainW
+	}
+	return min(80, max(10, w-3))
+}
+
+// ensurePics starts loading the selected PR's GitHub pictures, and re-places loaded ones after a width change.
+func (m *Model) ensurePics() tea.Cmd {
+	if !m.opts.Images || m.view != viewPRs {
+		return nil
+	}
+	n, cur, _ := m.list()
+	if n == 0 {
+		return nil
+	}
+	cols := m.picCols()
+	shown, _ := bodyLines(m.prList()[*cur].Body)
+	var cmds []tea.Cmd
+	var place strings.Builder
+	for _, line := range shown {
+		for _, link := range termimg.Links(line) {
+			url := link.URL
+			if st, seen := m.pics[url]; seen {
+				if !st.loading && st.err == nil && st.placed != cols {
+					place.WriteString(st.pic.Place(cols))
+					st.placed = cols
+				}
+				continue
+			}
+			if !termimg.Allowed(url) {
+				continue
+			}
+			m.pics[url] = &picState{loading: true}
+			m.picIDs++
+			id, ctx := picBase+m.picIDs, m.ctx
+			cmds = append(cmds, func() tea.Msg {
+				pic, err := fetchPic(ctx, url, id)
+				return picMsg{url, pic, err}
+			})
+		}
+	}
+	if place.Len() > 0 {
+		cmds = append(cmds, tea.Raw(place.String()))
+	}
+	return tea.Batch(cmds...)
+}
+
+// freePics deletes every picture this app sent, so the terminal does not keep them after exit.
+func (m *Model) freePics() tea.Cmd {
+	var b strings.Builder
+	for _, st := range m.pics {
+		if st.pic.ID != 0 {
+			b.WriteString(termimg.Delete(st.pic.ID))
+		}
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	return tea.Raw(b.String())
+}
 
 func (m *Model) closeDiff() {
 	if m.diff.res.cancel != nil {

@@ -132,6 +132,9 @@ func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
 			Review:  reviews[k%len(reviews)],
 			Checks:  checks[k%len(checks)],
 			Updated: demoBase.Add(-time.Duration(k*5) * time.Hour),
+			Body: "## Summary\n\n" + demoBodies[(k%2)+1] + "\n\n![Screenshot of the change](https://github.com/user-attachments/assets/demo-" +
+				fmt.Sprint(k) + ")\n\n- [x] Tests added",
+			Files: []PRFile{{"app/maths.ts", 12, 3}, {"app/maths.test.ts", 40, 0}},
 		})
 	}
 	return prs, nil
@@ -187,4 +190,14 @@ func (Demo) Diff(_ context.Context, repo, _ string) ([]string, error) {
 		"diff --git a/app/colours.css b/app/colours.css\n--- a/app/colours.css\n+++ b/app/colours.css\n@@ -1,2 +1,2 @@\n-.error { colour: #c00; }\n+.error { colour: #b3261e; }\n",
 		"+ notes/todo.md\n+ scratch.txt",
 	), nil
+}
+
+func (Demo) PRDiff(_ context.Context, repo, _ string, number int) ([]string, error) {
+	if err := demoErr(repo); err != nil {
+		return nil, err
+	}
+	return []string{
+		"diff --git a/app/maths.ts b/app/maths.ts", "--- a/app/maths.ts", "+++ b/app/maths.ts",
+		"@@ -10,3 +10,3 @@", fmt.Sprintf("-  // PR #%d", number), "-  return round(a) + round(b)", "+  return round(a + b)",
+	}, nil
 }

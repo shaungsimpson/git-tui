@@ -60,6 +60,7 @@ type Source interface {
 	Deployments(ctx context.Context, repo, dir string) ([]Deployment, error)
 	DeployRuns(ctx context.Context, repo, dir string) ([]Run, error)
 	Diff(ctx context.Context, repo, dir string) ([]string, error)
+	PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error)
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.

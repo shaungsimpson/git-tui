@@ -13,6 +13,7 @@ import (
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
+	"github.com/shaungsimpson/git-tui/internal/termimg"
 )
 
 const (
@@ -479,7 +480,7 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 
 func (m *Model) prDetail(p gitx.PR) []string {
 	review, rst := m.reviewText(p)
-	return []string{
+	lines := []string{
 		" " + m.st.text.Bold(true).Render(clean(p.Title)),
 		m.kv("PR", "#"+strconv.Itoa(p.Number)+" in "+clean(p.Repo), m.st.accent),
 		m.kv("Author", clean(p.Author), m.st.text),
@@ -489,6 +490,62 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		m.kv("Updated", m.when(p.Updated), m.st.text),
 		m.kv("Link", clean(p.URL), m.st.muted),
 	}
+	if strings.TrimSpace(p.Body) != "" {
+		lines = append(lines, "", m.st.title.Render(" Description"))
+		shown, more := bodyLines(p.Body)
+		for _, l := range shown {
+			lines = append(lines, " "+clean(l))
+			for _, link := range termimg.Links(l) {
+				lines = append(lines, m.picLines(link)...)
+			}
+		}
+		if more > 0 {
+			lines = append(lines, m.st.muted.Render(fmt.Sprintf(" … %d more lines. Press o to read the rest on GitHub.", more)))
+		}
+	}
+	if len(p.Files) > 0 {
+		lines = append(lines, "", m.st.title.Render(fmt.Sprintf(" Files changed (%d) · d shows the diff", len(p.Files))))
+		for _, f := range p.Files {
+			lines = append(lines, " "+m.st.ok.Render(pad("+"+strconv.Itoa(f.Additions), 5))+m.st.bad.Render(pad("-"+strconv.Itoa(f.Deletions), 5))+m.st.text.Render(clean(f.Path)))
+		}
+	}
+	return lines
+}
+
+// maxBodyLines caps a PR description in Details; bot PRs can carry tens of thousands of characters.
+const maxBodyLines = 200
+
+// bodyLines is the part of a PR description that Details shows, and how many lines are left out.
+func bodyLines(body string) ([]string, int) {
+	all := strings.Split(strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n")), "\n")
+	if len(all) <= maxBodyLines {
+		return all, 0
+	}
+	return all[:maxBodyLines], len(all) - maxBodyLines
+}
+
+// picLines draws a PR-body picture, or says why it is not shown.
+func (m *Model) picLines(l termimg.Link) []string {
+	label := "image"
+	if l.Alt != "" {
+		label = "image: " + clean(l.Alt)
+	}
+	note := func(why string) []string { return []string{m.st.muted.Render(" [" + label + " · " + why + "]")} }
+	if !m.opts.Images {
+		return note("this terminal cannot draw images; press o to view on GitHub")
+	}
+	if !termimg.Allowed(l.URL) {
+		return note("not hosted on GitHub, so not loaded")
+	}
+	st, ok := m.pics[l.URL]
+	cols := m.picCols()
+	switch {
+	case !ok || st.loading || st.placed != cols: // placed != cols only until the new size is sent
+		return note("loading…")
+	case st.err != nil:
+		return note("not shown: " + clean(st.err.Error()))
+	}
+	return st.pic.Lines(cols)
 }
 
 // mainContent returns the pane title and a row builder for the current list.
@@ -955,16 +1012,15 @@ func (m *Model) statusLine() string {
 
 // diffLines is the visible part of the open diff, coloured by line kind.
 func (m *Model) diffLines(h int) []string {
-	r := &m.repos[m.diff.repo]
-	lines := []string{m.st.titleFocus.Render(" Uncommitted changes · " + clean(r.cfg.Name))}
+	lines := []string{m.st.titleFocus.Render(" " + m.diff.title)}
 	res := &m.diff.res
 	switch {
 	case res.loading && !res.loaded:
 		return append(lines, m.st.muted.Render(" Loading diff…"))
 	case res.err != nil:
 		return append(lines, m.st.bad.Render(" Could not read the diff: "+clean(res.err.Error())))
-	case len(res.val) == 0:
-		return append(lines, m.st.muted.Render(" No uncommitted changes."))
+	case len(res.val) == 0 || len(res.val) == 1 && res.val[0] == "":
+		return append(lines, m.st.muted.Render(" No changes."))
 	}
 	end := min(len(res.val), m.diff.off+h-1)
 	for _, l := range res.val[m.diff.off:end] {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
+	"github.com/shaungsimpson/git-tui/internal/termimg"
 	"github.com/shaungsimpson/git-tui/internal/ui"
 )
 
@@ -19,7 +20,8 @@ func main() {
 	demo := flag.Bool("demo", false, "use built-in fixture data instead of real repositories")
 	flag.Parse()
 
-	opts := ui.Options{Demo: *demo, Tools: map[string]string{}}
+	// Demo mode never touches the network, so PR pictures stay as text there.
+	opts := ui.Options{Demo: *demo, Images: !*demo && termimg.Supported(os.Getenv), Tools: map[string]string{}}
 	for _, t := range []string{"git", "gh"} {
 		if p, err := exec.LookPath(t); err == nil {
 			opts.Tools[t] = p

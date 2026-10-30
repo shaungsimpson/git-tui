@@ -58,7 +58,7 @@ The file is selected in this order:
 |-------------|-----------------------------------------------------------------------------------------|
 | Overview    | Per repository: branch, worktree state, ahead/behind, latest commit                      |
 | Activity    | Recent commits (100 per repository), merged by date, for all repositories or the one selected |
-| Pull requests | Open PRs with review state, draft flag and combined check status (passing, pending, failing) |
+| Pull requests | Open PRs with review state, draft flag and combined check status (passing, pending, failing). Details show the description (first 200 lines, with its pictures) and the changed files; `d` shows the PR's code diff |
 | Repository  | Branch, HEAD, upstream, tracking and worktree for the selected repository, plus its commits |
 | Tags        | Tags; mark one as the base and pick another to list the **commits** between them        |
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
@@ -80,7 +80,7 @@ Tag comparisons are plain commit lists. PRs are squash-merged, so each commit ti
 | `Ctrl+R`          | Refresh the current view                                                   |
 | `?`               | Contextual shortcut help                                                   |
 | `F2`              | Toggle the dark and light themes                                           |
-| `d`               | On a repository with uncommitted changes (Overview row, sidebar or Repository view): show its diff, in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
+| `d`               | Show a diff: on a pull request, its code changes; on a repository with uncommitted changes (Overview row, sidebar or Repository view), those changes in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
 | `o`               | In Pull requests: open the selected PR in your browser (https links only) |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
 | `Ctrl+C`          | Quit                                                                       |
@@ -94,6 +94,7 @@ While the filter input is open, all typing and pasted text go to the input, not 
 - Pull requests are read with `gh pr list`, deployments with `gh api graphql` and deploy runs with `gh run list` (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.
 - Deploys is the only view that reloads by itself: every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.
+- Pictures in PR descriptions are drawn in the terminal in Ghostty, kitty and WezTerm (Kitty graphics protocol), not inside tmux. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded (up to 10 MB each, no login sent); anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures.
 - A failed load is only retried when you press Ctrl+R; the status line shows a `ctrl+r retry` hint.
 - Loads run asynchronously. A refresh keeps the existing content visible, and results from superseded requests are discarded.
 - Text from Git (subjects, branch names, errors) has its control characters and escape sequences removed before display.

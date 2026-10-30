@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,14 @@ type PR struct {
 	Review  string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty when no review is required
 	Checks  CheckState
 	Updated time.Time
+	Body    string
+	Files   []PRFile
+}
+
+// PRFile is one file a pull request changes.
+type PRFile struct {
+	Path                 string
+	Additions, Deletions int
 }
 
 const ghTimeout = 20 * time.Second // network call, unlike the local git commands
@@ -42,11 +51,24 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	}
 	// shortcut: only the 100 most recently created open PRs per repository; page if a repository has more.
 	out, err := command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
-		"--json", "number,title,author,headRefName,url,isDraft,reviewDecision,statusCheckRollup,updatedAt")
+		"--json", "number,title,author,headRefName,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,body,files")
 	if err != nil {
 		return nil, err
 	}
 	return ParsePRs(repo, out)
+}
+
+// PRDiff is a pull request's code changes as patch lines.
+func (g Git) PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error) {
+	slug, err := g.slug(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	out, err := command(ctx, dir, ghTimeout, "gh", "pr", "diff", strconv.Itoa(number), "--repo", slug, "--color", "never")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(strings.TrimRight(out, "\n"), "\n"), nil
 }
 
 // slug is the GitHub "owner/name" of the repository's origin remote.
@@ -90,6 +112,8 @@ func ParsePRs(repo, out string) ([]PR, error) {
 		IsDraft           bool
 		ReviewDecision    string
 		UpdatedAt         time.Time
+		Body              string
+		Files             []PRFile
 		Author            struct{ Login string }
 		StatusCheckRollup []struct{ Status, Conclusion, State string }
 	}
@@ -116,6 +140,7 @@ func ParsePRs(repo, out string) ([]PR, error) {
 		prs = append(prs, PR{
 			Repo: repo, Number: r.Number, Title: r.Title, Author: r.Author.Login, Branch: r.HeadRefName,
 			URL: r.URL, Draft: r.IsDraft, Review: r.ReviewDecision, Checks: checks, Updated: r.UpdatedAt,
+			Body: r.Body, Files: r.Files,
 		})
 	}
 	return prs, nil

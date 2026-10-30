@@ -1,6 +1,9 @@
 package gitx
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRepoSlug(t *testing.T) {
 	cases := map[string]string{
@@ -34,7 +37,9 @@ func TestParsePRsCheckRollup(t *testing.T) {
 	 {"number":3,"title":"Running","author":{"login":"c"},"isDraft":true,
 	  "statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""},
 	                       {"__typename":"StatusContext","state":"SUCCESS"}]},
-	 {"number":4,"title":"None","author":{"login":"d"},"statusCheckRollup":[]}
+	 {"number":4,"title":"None","author":{"login":"d"},"statusCheckRollup":[],
+	  "body":"Why\n\n![shot](https://github.com/user-attachments/assets/x)",
+	  "files":[{"path":"a.go","additions":3,"deletions":1,"changeType":"MODIFIED"}]}
 	]`
 	prs, err := ParsePRs("backend", out)
 	if err != nil {
@@ -48,6 +53,9 @@ func TestParsePRsCheckRollup(t *testing.T) {
 	}
 	if prs[0].Author != "a" || prs[0].Review != "APPROVED" || prs[0].Updated.IsZero() || !prs[2].Draft || prs[0].Repo != "backend" {
 		t.Fatalf("fields not mapped: %+v", prs[0])
+	}
+	if !strings.Contains(prs[3].Body, "![shot]") || len(prs[3].Files) != 1 || prs[3].Files[0] != (PRFile{"a.go", 3, 1}) {
+		t.Fatalf("body and files: %+v", prs[3])
 	}
 	if _, err := ParsePRs("x", "To get started with GitHub CLI"); err == nil {
 		t.Fatal("non-JSON output must be an error")
