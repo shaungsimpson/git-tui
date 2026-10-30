@@ -163,13 +163,13 @@ func (m *Model) freshness() string {
 
 type refreshMsg struct{}
 
-// active reports whether someone has used the app recently enough to keep the idle tick going.
-func (m *Model) active() bool { return clock().Sub(m.lastUse) < idleAfter }
+// inUse reports whether someone has used the app recently enough to keep the idle tick going.
+func (m *Model) inUse() bool { return clock().Sub(m.lastUse) < idleAfter }
 
 // scheduleRefresh keeps one idle tick going while the window is focused and in use. A terminal that never
 // reports focus counts as focused, so there the idle pause is what stops an abandoned window calling gh.
 func (m *Model) scheduleRefresh() tea.Cmd {
-	if m.ticking || !m.focused || !m.active() {
+	if m.ticking || !m.focused || !m.inUse() {
 		return nil
 	}
 	m.ticking = true
@@ -185,7 +185,7 @@ var refreshTick = func() tea.Cmd {
 // returning to the window or pressing a key starts it again.
 func (m *Model) onRefresh() tea.Cmd {
 	m.ticking = false
-	if !m.focused || !m.active() {
+	if !m.focused || !m.inUse() {
 		return nil
 	}
 	return tea.Batch(m.ensure(false), m.scheduleRefresh())

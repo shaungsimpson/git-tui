@@ -265,7 +265,11 @@ func (m *Model) profileLines() []string {
 		busy = m.st.muted.Render(" " + g.more)
 	}
 	if shown == ProfileText {
-		who := m.st.marker.Render(" " + clean(firstOf(prefix("@", v.Login), v.GitName, "You")))
+		handle := v.GitName
+		if v.Login != "" {
+			handle = "@" + v.Login
+		}
+		who := m.st.marker.Render(" " + clean(firstOf(handle, "You")))
 		return []string{who + sep + strings.Join(m.counts(s, g, true), sep) + busy}
 	}
 
@@ -372,12 +376,4 @@ func firstOf(s ...string) string {
 // joinSet joins the non-empty parts.
 func joinSet(sep string, parts ...string) string {
 	return strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), sep)
-}
-
-// prefix is p+s, or empty when s is.
-func prefix(p, s string) string {
-	if s == "" {
-		return ""
-	}
-	return p + s
 }

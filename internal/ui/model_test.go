@@ -217,15 +217,21 @@ func TestGoSequenceTimeoutAndReset(t *testing.T) {
 	}
 }
 
-// countingSource returns a log whose subject records which call produced it.
+// countingSource counts loads: logs return a commit whose subject records which call produced it,
+// and commit lists come from the demo.
 type countingSource struct {
 	gitx.Demo
-	calls atomic.Int32
+	calls, compares atomic.Int32
 }
 
 func (c *countingSource) Log(_ context.Context, repo, _ string, _ int) ([]gitx.Commit, error) {
 	n := c.calls.Add(1)
 	return []gitx.Commit{{Repo: repo, Hash: "abc", Subject: "call " + string('0'+n)}}, nil
+}
+
+func (c *countingSource) Compare(ctx context.Context, repo, dir, base, head string) ([]gitx.Commit, error) {
+	c.compares.Add(1)
+	return c.Demo.Compare(ctx, repo, dir, base, head)
 }
 
 func TestStaleResultsDropped(t *testing.T) {
@@ -1250,29 +1256,18 @@ func TestHeaderKeepsTabsBeforeTheAge(t *testing.T) {
 	}
 }
 
-// compareCounter counts commit-list loads.
-type compareCounter struct {
-	gitx.Demo
-	calls atomic.Int32
-}
-
-func (c *compareCounter) Compare(ctx context.Context, repo, dir, base, head string) ([]gitx.Commit, error) {
-	c.calls.Add(1)
-	return c.Demo.Compare(ctx, repo, dir, base, head)
-}
-
 func TestOpenCommitListRefreshes(t *testing.T) {
 	now := fakeClock(t)
-	src := &compareCounter{}
+	src := &countingSource{}
 	o := demoOpts()
 	o.Source = src
 	m := setup(t, o, 140, 40)
 	press(m, "shift+tab", "j", "tab", "g", "e", "enter") // "Not yet in" list for backend's newest environment
-	if !m.cmpOpen() || src.calls.Load() != 1 {
-		t.Fatalf("setup: list open %v, loads %d", m.cmpOpen(), src.calls.Load())
+	if !m.cmpOpen() || src.compares.Load() != 1 {
+		t.Fatalf("setup: list open %v, loads %d", m.cmpOpen(), src.compares.Load())
 	}
 	press(m, "j")
-	if src.calls.Load() != 1 {
+	if src.compares.Load() != 1 {
 		t.Fatal("a fresh list is not reloaded on a key")
 	}
 	*now = now.Add(localAge)
@@ -1284,8 +1279,8 @@ func TestOpenCommitListRefreshes(t *testing.T) {
 		t.Fatalf("the open list counts toward the age: %q", got)
 	}
 	press(m, "k")
-	if src.calls.Load() != 2 {
-		t.Fatalf("a stale list reloads on the next key, like other git data; loads %d", src.calls.Load())
+	if src.compares.Load() != 2 {
+		t.Fatalf("a stale list reloads on the next key, like other git data; loads %d", src.compares.Load())
 	}
 }
 
