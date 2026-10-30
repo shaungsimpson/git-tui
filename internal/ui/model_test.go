@@ -813,6 +813,19 @@ func TestPullRequestPictureError(t *testing.T) {
 	if detail := strings.Join(m.detailLines(), "\n"); !strings.Contains(detail, "[image: shot · not shown: HTTP 404]") {
 		t.Fatalf("a failed picture should say why, not keep loading:\n%s", detail)
 	}
+
+	const shot = "https://github.com/user-attachments/assets/aaa"
+	fetched := 0
+	fetchPic = func(_ context.Context, _ gitx.Source, url string, _ int) (termimg.Picture, error) {
+		if url == shot { // Ctrl+R also reloads the demo PRs, whose pictures do not count here
+			fetched++
+		}
+		return termimg.Picture{}, errors.New("HTTP 500")
+	}
+	press(m, "ctrl+r")
+	if st := m.pics[shot]; fetched != 1 || st == nil || st.err == nil || st.err.Error() != "HTTP 500" {
+		t.Fatalf("Ctrl+R should retry a failed picture, fetched %d times", fetched)
+	}
 }
 
 func TestHelpFitsCommonSizes(t *testing.T) {
@@ -939,8 +952,8 @@ func TestUnavailableRepoDoesNotBlock(t *testing.T) {
 }
 
 func TestClean(t *testing.T) {
-	in := "ok\x1b[31mred\x1b[0m\x1b]0;title\x07\x07bell\u009b\ttab"
-	if got := clean(in); got != "okredbell tab" {
+	in := "ok\x1b[31mred\x1b[0m\x1b]0;title\x07\x07bell\u009b\ttab\u202egnirts\u2066x\u2069"
+	if got := clean(in); got != "okredbell tabgnirtsx" {
 		t.Fatalf("clean = %q", got)
 	}
 }
@@ -1080,6 +1093,25 @@ func TestProfileAvatarFallbacks(t *testing.T) {
 	}
 	if got := m.ensureAvatar(); got != nil {
 		t.Fatal("the same avatar is not fetched twice")
+	}
+
+	fetched := 0
+	fetchAvatar = func(context.Context, gitx.Source, string) (image.Image, error) {
+		fetched++
+		if fetched == 1 {
+			return nil, errors.New("HTTP 500")
+		}
+		return img, nil
+	}
+	o := demoOpts()
+	o.Profile = ProfileFull
+	m = setup(t, o, 120, 30)
+	if fetched != 1 || m.avatar.err == nil {
+		t.Fatalf("the first avatar download should fail, fetched %d times", fetched)
+	}
+	press(m, "ctrl+r")
+	if fetched != 2 || m.avatar.err != nil || m.avatar.img == nil {
+		t.Fatalf("Ctrl+R should retry a failed avatar, fetched %d times, err %v", fetched, m.avatar.err)
 	}
 	m = New(demoOpts())
 	m.me.val = gitx.Viewer{Name: "Mo Bell"} // no picture

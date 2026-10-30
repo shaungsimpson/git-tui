@@ -189,6 +189,41 @@ func TestGitEnvDropsInheritedGitVars(t *testing.T) {
 	}
 }
 
+func TestRepositoryConfigCannotRunFsmonitor(t *testing.T) {
+	dir := gitRepo(t)
+	hook := filepath.Join(t.TempDir(), "hook")
+	ran := hook + ".ran"
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch '"+ran+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = dir, append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "f")
+	git("config", "core.fsmonitor", hook)
+	git("status") // proves the hook would run without the app's override
+	if _, err := os.Stat(ran); err != nil {
+		t.Skip("this git does not run core.fsmonitor hooks")
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := (Git{}).Summary(context.Background(), "tmp", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("git status ran the repository's core.fsmonitor program")
+	}
+}
+
 func TestDemoIsDeterministic(t *testing.T) {
 	a, _ := Demo{}.Log(context.Background(), "backend", "", 5)
 	b, _ := Demo{}.Log(context.Background(), "backend", "", 5)

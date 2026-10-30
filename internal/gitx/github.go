@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -124,18 +125,22 @@ func (g Git) slug(ctx context.Context, dir string) (string, error) {
 	return slug, nil
 }
 
-// RepoSlug returns "owner/name" for a github.com remote URL in SSH, scp-like or HTTPS form.
+// RepoSlug returns "owner/name" for a github.com remote URL in SSH, scp-like or HTTPS form. The host must be
+// github.com itself, or over SSH a host alias such as "github.com-work".
 func RepoSlug(remote string) (string, bool) {
 	s := strings.TrimSpace(remote)
-	i := strings.Index(s, "github.com")
-	if i < 0 {
+	var host, path string
+	web := false
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		host, path, web = u.Hostname(), u.Path, u.Scheme != "ssh"
+	} else if h, p, ok := strings.Cut(s, ":"); ok { // scp-like: git@github.com:owner/name
+		host, path = h[strings.LastIndex(h, "@")+1:], p
+	}
+	host = strings.ToLower(host)
+	if host != "github.com" && (web || !strings.HasPrefix(host, "github.com-")) {
 		return "", false
 	}
-	s = strings.TrimSuffix(s[i+len("github.com"):], ".git")
-	if j := strings.IndexAny(s, ":/"); j >= 0 {
-		s = s[j:] // skip an SSH host alias suffix such as "github.com-work:owner/name"
-	}
-	s = strings.Trim(strings.TrimLeft(s, ":/"), "/") // remotes may be written "github.com:/owner/name"
+	s = strings.Trim(strings.TrimSuffix(path, ".git"), "/") // remotes may be written "github.com:/owner/name"
 	if parts := strings.Split(s, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", false
 	}

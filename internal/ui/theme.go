@@ -71,6 +71,8 @@ func clean(s string) string {
 			return ' '
 		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0):
 			return -1
+		case (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069): // direction overrides could reorder text
+			return -1
 		}
 		return r
 	}, s)

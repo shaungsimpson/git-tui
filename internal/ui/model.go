@@ -446,6 +446,15 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return tea.Tick(seqTimeout, func(time.Time) tea.Msg { return seqExpiredMsg{gen} })
 	case actRefresh:
 		m.flash = "Refreshing " + viewNames[m.view]
+		// Failed pictures retry too: the key's ensurePics fetches them again, and the viewer reload the avatar.
+		for url, st := range m.pics {
+			if st.err != nil {
+				delete(m.pics, url)
+			}
+		}
+		if m.avatar.err != nil {
+			m.avatar.url = ""
+		}
 		return m.ensure(true)
 	case actHelp:
 		m.help = true

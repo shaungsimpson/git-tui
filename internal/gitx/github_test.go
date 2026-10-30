@@ -7,14 +7,19 @@ import (
 
 func TestRepoSlug(t *testing.T) {
 	cases := map[string]string{
-		"git@github.com:acme/frontend.git\n":       "acme/frontend",
-		"git@github.com:/acme/backend.git":         "acme/backend", // real remote form
-		"https://github.com/acme/personal-site":    "acme/personal-site",
-		"ssh://git@github.com/owner/repo.git":      "owner/repo",
-		"git@github.com-work:acme/backend.git":     "acme/backend", // SSH host alias
-		"ssh://git@github.com-work/owner/repo.git": "owner/repo",
-		"git@gitlab.com:owner/repo.git":            "",
-		"https://github.com/owner":                 "",
+		"git@github.com:acme/frontend.git\n":         "acme/frontend",
+		"git@github.com:/acme/backend.git":           "acme/backend", // real remote form
+		"https://github.com/acme/personal-site":      "acme/personal-site",
+		"ssh://git@github.com/owner/repo.git":        "owner/repo",
+		"git@github.com-work:acme/backend.git":       "acme/backend", // SSH host alias
+		"ssh://git@github.com-work/owner/repo.git":   "owner/repo",
+		"git@gitlab.com:owner/repo.git":              "",
+		"https://github.com/owner":                   "",
+		"https://github.com.evil.example/owner/repo": "", // github.com must be the whole host
+		"https://notgithub.com/owner/repo":           "",
+		"https://evil.example/github.com/owner/repo": "",
+		"https://github.com-work/owner/repo":         "", // host aliases are an SSH feature
+		"git@evil.example:github.com/repo":           "",
 	}
 	for in, want := range cases {
 		got, ok := RepoSlug(in)

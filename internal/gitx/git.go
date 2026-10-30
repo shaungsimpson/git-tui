@@ -214,15 +214,19 @@ func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commi
 }
 
 // gitEnv drops inherited GIT_* variables (GIT_DIR would point every repository at one repo),
-// then disables git and gh prompts and optional index writes.
+// then disables git and gh prompts and optional index writes. It also turns off core.fsmonitor, which a
+// repository's own config could otherwise set to a program that git status runs.
+// shortcut: other programs a repository's config names, such as clean filters (Git LFS is one), still run;
+// configured repositories are trusted, as in your shell. Revisit if the app ever reads repositories it did not clone.
 func gitEnv(env []string) []string {
-	out := make([]string, 0, len(env)+3)
+	out := make([]string, 0, len(env)+7)
 	for _, kv := range env {
 		if !strings.HasPrefix(kv, "GIT_") {
 			out = append(out, kv)
 		}
 	}
-	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GH_PROMPT_DISABLED=1", "LC_ALL=C")
+	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GH_PROMPT_DISABLED=1", "LC_ALL=C",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.fsmonitor", "GIT_CONFIG_VALUE_0=false")
 }
 
 // ParseLog parses output produced with logFormat.
