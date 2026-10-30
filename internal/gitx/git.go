@@ -59,6 +59,7 @@ type Source interface {
 	PullRequests(ctx context.Context, repo, dir string) ([]PR, error)
 	Deployments(ctx context.Context, repo, dir string) ([]Deployment, error)
 	DeployRuns(ctx context.Context, repo, dir string) ([]Run, error)
+	Diff(ctx context.Context, repo, dir string) ([]string, error)
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.
@@ -128,6 +129,48 @@ func (g Git) Log(ctx context.Context, repo, dir string, n int) ([]Commit, error)
 		return nil, err
 	}
 	return ParseLog(repo, out), nil
+}
+
+// Diff is the uncommitted changes as lines: a "## " heading, then the patch, for staged changes,
+// unstaged changes and untracked files. External diff and textconv programs are never run.
+func (g Git) Diff(ctx context.Context, repo, dir string) ([]string, error) {
+	noTools := []string{"--no-color", "--no-ext-diff", "--no-textconv"}
+	staged, err := g.run(ctx, dir, append([]string{"diff", "--cached"}, noTools...)...)
+	if err != nil {
+		return nil, err
+	}
+	unstaged, err := g.run(ctx, dir, append([]string{"diff"}, noTools...)...)
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := g.run(ctx, dir, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range strings.Split(strings.TrimSpace(untracked), "\n") {
+		if f != "" {
+			files = append(files, "+ "+f)
+		}
+	}
+	return DiffSections(staged, unstaged, strings.Join(files, "\n")), nil
+}
+
+// DiffSections joins the three parts under headings, leaving out empty ones.
+func DiffSections(staged, unstaged, untracked string) []string {
+	var lines []string
+	for _, s := range []struct{ title, body string }{
+		{"Staged changes", staged}, {"Unstaged changes", unstaged}, {"Untracked files", untracked},
+	} {
+		if body := strings.TrimRight(s.body, "\n"); body != "" {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, "## "+s.title)
+			lines = append(lines, strings.Split(body, "\n")...)
+		}
+	}
+	return lines
 }
 
 func (g Git) Tags(ctx context.Context, repo, dir string) ([]Tag, error) {

@@ -80,6 +80,7 @@ Tag comparisons are plain commit lists. PRs are squash-merged, so each commit ti
 | `Ctrl+R`          | Refresh the current view                                                   |
 | `?`               | Contextual shortcut help                                                   |
 | `F2`              | Toggle the dark and light themes                                           |
+| `d`               | On a repository with uncommitted changes (Overview row, sidebar or Repository view): show its diff, in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
 | `o`               | In Pull requests: open the selected PR in your browser (https links only) |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
 | `Ctrl+C`          | Quit                                                                       |
@@ -89,7 +90,7 @@ While the filter input is open, all typing and pasted text go to the input, not 
 ## Scope and behaviour
 
 - Git is run with argument arrays in each repository's directory, with a 5-second timeout. `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0` are set, so it never prompts and never refreshes the index.
-- Only `status`, `log`, `for-each-ref` and `remote get-url` are run. There is no fetch, pull, checkout or tagging.
+- Only `status`, `log`, `for-each-ref`, `diff`, `ls-files` and `remote get-url` are run; `diff` uses `--no-ext-diff --no-textconv`, so a repository's own diff programs never run. There is no fetch, pull, checkout or tagging.
 - Pull requests are read with `gh pr list`, deployments with `gh api graphql` and deploy runs with `gh run list` (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.
 - Deploys is the only view that reloads by itself: every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.

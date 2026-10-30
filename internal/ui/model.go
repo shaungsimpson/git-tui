@@ -76,6 +76,7 @@ const (
 	kindPRs
 	kindDeps
 	kindRuns
+	kindDiff
 	kindCompare
 )
 
@@ -117,6 +118,14 @@ type compareState struct {
 	cur, off         int
 }
 
+// diffState is the full-width view of one repository's uncommitted changes.
+type diffState struct {
+	open bool
+	repo int // indexes Model.repos
+	res  slot[[]string]
+	off  int
+}
+
 // envRow is one environment of one repository; repo indexes Model.repos.
 type envRow struct {
 	repo int
@@ -150,6 +159,7 @@ type Model struct {
 	inspect bool // detail shown in place of the list on narrow layouts
 	detOff  int
 	cmp     compareState
+	diff    diffState
 
 	filters   [viewCount]string
 	input     textinput.Model
@@ -282,6 +292,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if m.diff.open {
+		page := max(1, m.layout().bodyH-2)
+		switch s {
+		case "esc", "d":
+			m.closeDiff()
+		case "j", "down":
+			m.scrollDiff(1)
+		case "k", "up":
+			m.scrollDiff(-1)
+		case "pgdown", "space":
+			m.scrollDiff(page)
+		case "pgup":
+			m.scrollDiff(-page)
+		}
+		return nil
+	}
 	if m.pendingG {
 		m.resetSequence()
 		for _, g := range goKeys {
@@ -336,6 +362,14 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actTime:
 		m.utc = !m.utc
 		m.flash = "Times now shown in " + m.zone() + "."
+	case actDiff:
+		i := m.diffTarget()
+		if i < 0 {
+			return nil
+		}
+		m.diff = diffState{open: true, repo: i, res: slot[[]string]{gen: m.diff.res.gen + 1}}
+		src, name, dir := m.opts.Source, m.repos[i].cfg.Name, m.repos[i].cfg.Path
+		return start(m, &m.diff.res, true, kindDiff, i, func(ctx context.Context) ([]string, error) { return src.Diff(ctx, name, dir) })
 	case actBrowse:
 		url, what := m.browseTarget()
 		if !strings.HasPrefix(url, "https://") { // the link comes from GitHub data; never hand other schemes to the OS
@@ -348,6 +382,38 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return tea.Quit
 	}
 	return nil
+}
+
+// diffTarget is the repository whose changes d shows: the sidebar's, the Overview row's, or the Repository view's.
+// It is -1 when nothing with uncommitted changes is selected.
+func (m *Model) diffTarget() int {
+	i := -1
+	switch {
+	case m.focus == paneSidebar || m.view == viewRepo:
+		i = m.repo - 1
+	case m.view == viewOverview:
+		if rows := m.overviewRows(); m.cursor[viewOverview] < len(rows) {
+			i = rows[m.cursor[viewOverview]]
+		}
+	}
+	if i < 0 || i >= len(m.repos) || !m.repos[i].summary.loaded || m.repos[i].summary.val.Clean() {
+		return -1
+	}
+	return i
+}
+
+func (m *Model) canDiff() bool { return m.diffTarget() >= 0 }
+
+func (m *Model) closeDiff() {
+	if m.diff.res.cancel != nil {
+		m.diff.res.cancel()
+	}
+	m.diff = diffState{res: slot[[]string]{gen: m.diff.res.gen + 1}} // a late result is dropped
+}
+
+func (m *Model) scrollDiff(d int) {
+	last := max(0, len(m.diff.res.val)-(m.layout().bodyH-1))
+	m.diff.off = min(max(0, m.diff.off+d), last)
 }
 
 // browseTarget is the web link for the selected row, and how to name it; empty where there is none.
@@ -884,7 +950,11 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	if keys := m.rowKeys(m.view); m.cursor[m.view] > 0 && m.cursor[m.view] < len(keys) {
 		keep = keys[m.cursor[m.view]]
 	}
-	if msg.kind == kindCompare {
+	if msg.kind == kindDiff {
+		if m.diff.open && msg.repo == m.diff.repo {
+			finish(&m.diff.res, msg)
+		}
+	} else if msg.kind == kindCompare {
 		if msg.repo == m.cmp.repo {
 			finish(&m.cmp.res, msg)
 		}

@@ -2,7 +2,9 @@ package gitx
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -132,6 +134,44 @@ func TestLogEmptyRepository(t *testing.T) {
 	commits, err := Git{}.Log(context.Background(), "new", dir, 5)
 	if err != nil || len(commits) != 0 {
 		t.Fatalf("a repository with no commits should give no history and no error: %v %v", commits, err)
+	}
+}
+
+func TestDiffSections(t *testing.T) {
+	dir := gitRepo(t)
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(gitEnv(cmd.Environ()), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write("staged.txt", "new\n")
+	git("add", "staged.txt")
+	write("staged.txt", "new\nand edited\n") // also an unstaged change on top
+	write("loose.txt", "untracked\n")
+
+	lines, err := Git{}.Diff(context.Background(), "tmp", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := strings.Join(lines, "\n")
+	for _, want := range []string{"## Staged changes", "+new", "## Unstaged changes", "+and edited", "## Untracked files", "+ loose.txt"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("diff missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "## Staged") > strings.Index(out, "## Unstaged") {
+		t.Error("staged should come before unstaged")
+	}
+	if got := DiffSections("", "", ""); len(got) != 0 {
+		t.Fatalf("a clean worktree has no sections: %q", got)
 	}
 }
 

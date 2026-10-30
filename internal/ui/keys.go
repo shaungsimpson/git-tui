@@ -11,6 +11,7 @@ const (
 	actFocusPrev
 	actOpen
 	actBrowse
+	actDiff
 	actBack
 	actFilter
 	actGo
@@ -42,6 +43,7 @@ var actions = []action{
 	{id: actFocusPrev, key: bind("shift+tab", "previous pane", "shift+tab")},
 	{id: actOpen, key: bind("enter", "open", "enter"), hint: true, when: (*Model).canOpen},
 	{id: actBrowse, key: bind("o", "open in browser", "o"), hint: true, when: (*Model).canBrowse},
+	{id: actDiff, key: bind("d", "diff", "d"), hint: true, when: (*Model).canDiff},
 	{id: actBack, key: bind("esc", "back", "esc"), hint: true, when: (*Model).canBack},
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
 	{id: actGo, key: bind("g", "go to view…", "g")},

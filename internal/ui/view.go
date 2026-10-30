@@ -85,6 +85,8 @@ func (m *Model) render() string {
 	}
 	if m.help {
 		rows = append(rows, box(m.helpLines(), m.width, l.bodyH))
+	} else if m.diff.open {
+		rows = append(rows, box(m.diffLines(l.bodyH), m.width, l.bodyH))
 	} else {
 		var cols []string
 		var widths []int
@@ -951,7 +953,44 @@ func (m *Model) statusLine() string {
 	return fit(left, right, m.width)
 }
 
+// diffLines is the visible part of the open diff, coloured by line kind.
+func (m *Model) diffLines(h int) []string {
+	r := &m.repos[m.diff.repo]
+	lines := []string{m.st.titleFocus.Render(" Uncommitted changes · " + clean(r.cfg.Name))}
+	res := &m.diff.res
+	switch {
+	case res.loading && !res.loaded:
+		return append(lines, m.st.muted.Render(" Loading diff…"))
+	case res.err != nil:
+		return append(lines, m.st.bad.Render(" Could not read the diff: "+clean(res.err.Error())))
+	case len(res.val) == 0:
+		return append(lines, m.st.muted.Render(" No uncommitted changes."))
+	}
+	end := min(len(res.val), m.diff.off+h-1)
+	for _, l := range res.val[m.diff.off:end] {
+		st := m.st.text
+		switch {
+		case strings.HasPrefix(l, "## "):
+			st = m.st.title
+		case strings.HasPrefix(l, "+++"), strings.HasPrefix(l, "---"), strings.HasPrefix(l, "diff --git"), strings.HasPrefix(l, "index "):
+			st = m.st.muted
+		case strings.HasPrefix(l, "+"):
+			st = m.st.ok
+		case strings.HasPrefix(l, "-"):
+			st = m.st.bad
+		case strings.HasPrefix(l, "@@"):
+			st = m.st.accent
+		}
+		lines = append(lines, " "+st.Render(clean(l)))
+	}
+	return lines
+}
+
 func (m *Model) footer() string {
+	if m.diff.open {
+		return ansi.Truncate(" "+m.st.key.Render("j/k")+m.st.muted.Render(" scroll  ")+m.st.key.Render("pgup/pgdn")+
+			m.st.muted.Render(" page  ")+m.st.key.Render("esc")+m.st.muted.Render(" close"), m.width, "…")
+	}
 	if m.filtering {
 		return ansi.Truncate(" "+m.input.View()+m.st.muted.Render("  enter apply · esc cancel"), m.width, "…")
 	}

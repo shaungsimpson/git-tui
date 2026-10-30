@@ -177,3 +177,14 @@ func (Demo) DeployRuns(_ context.Context, repo, _ string) ([]Run, error) {
 	}
 	return runs, nil
 }
+
+func (Demo) Diff(_ context.Context, repo, _ string) ([]string, error) {
+	if err := demoErr(repo); err != nil {
+		return nil, err
+	}
+	return DiffSections(
+		"diff --git a/app/maths.ts b/app/maths.ts\n--- a/app/maths.ts\n+++ b/app/maths.ts\n@@ -10,3 +10,3 @@\n-  return round(a) + round(b)\n+  return round(a + b)\n",
+		"diff --git a/app/colours.css b/app/colours.css\n--- a/app/colours.css\n+++ b/app/colours.css\n@@ -1,2 +1,2 @@\n-.error { colour: #c00; }\n+.error { colour: #b3261e; }\n",
+		"+ notes/todo.md\n+ scratch.txt",
+	), nil
+}

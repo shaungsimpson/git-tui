@@ -71,6 +71,10 @@ func keyMsg(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyF2}
 	case "ctrl+r":
 		return tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}
+	case "pgdown":
+		return tea.KeyPressMsg{Code: tea.KeyPgDown}
+	case "pgup":
+		return tea.KeyPressMsg{Code: tea.KeyPgUp}
 	}
 	r := []rune(s)[0]
 	return tea.KeyPressMsg{Code: r, Text: s}
@@ -86,7 +90,7 @@ func press(m *Model, keys ...string) {
 }
 
 func TestKeyStringsMatchBindings(t *testing.T) {
-	for _, s := range []string{"tab", "shift+tab", "enter", "esc", "f2", "ctrl+r", "j", "?", "/"} {
+	for _, s := range []string{"tab", "shift+tab", "enter", "esc", "f2", "ctrl+r", "j", "?", "/", "pgdown", "pgup"} {
 		if got := keyMsg(s).String(); got != s {
 			t.Errorf("key %q stringifies as %q", s, got)
 		}
@@ -503,6 +507,68 @@ func TestToggleUTC(t *testing.T) {
 	press(m, "u")
 	if m.when(at) != local {
 		t.Fatal("u again should switch back to local time")
+	}
+}
+
+func TestDiffView(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 30)
+	if m.canDiff() {
+		t.Fatal("backend is clean, so d should not be offered")
+	}
+	press(m, "j") // frontend has changes in the demo data
+	if !m.canDiff() || !strings.Contains(m.footer(), "diff") {
+		t.Fatal("d should be offered for a repository with changes")
+	}
+	press(m, "d")
+	if !m.diff.open || !strings.Contains(m.render(), "Uncommitted changes · frontend") {
+		t.Fatal("d should open the diff view")
+	}
+	out := strings.Join(m.diff.res.val, "\n")
+	if !strings.Contains(out, "## Staged changes") || !strings.Contains(out, "## Untracked files") {
+		t.Fatalf("diff content: %q", out)
+	}
+	press(m, "g", "a") // workspace keys do nothing while the diff is open
+	if m.view != viewOverview || !m.diff.open {
+		t.Fatal("keys other than scrolling and closing must not act behind the diff")
+	}
+	press(m, "esc")
+	if m.diff.open {
+		t.Fatal("esc should close the diff")
+	}
+
+	// A result that arrives after closing is dropped.
+	press(m, "d")
+	gen := m.diff.res.gen
+	press(m, "esc")
+	m.Update(resultMsg{kind: kindDiff, repo: m.diff.repo, gen: gen, val: []string{"late"}})
+	if m.diff.open || len(m.diff.res.val) != 0 {
+		t.Fatal("a late diff must not reopen or fill the view")
+	}
+
+	press(m, "shift+tab", "j", "j") // sidebar: frontend
+	if !m.canDiff() {
+		t.Fatal("d should work from the sidebar")
+	}
+	press(m, "k")
+	if m.canDiff() {
+		t.Fatal("not for a clean repository in the sidebar")
+	}
+}
+
+func TestDiffScrolls(t *testing.T) {
+	m := setup(t, demoOpts(), 80, 16)
+	m.diff = diffState{open: true, repo: 1, res: slot[[]string]{loaded: true, val: make([]string, 40)}}
+	press(m, "j", "j")
+	if m.diff.off != 2 {
+		t.Fatalf("j should scroll: off %d", m.diff.off)
+	}
+	press(m, "pgdown", "pgdown", "pgdown", "pgdown")
+	if last := 40 - (m.layout().bodyH - 1); m.diff.off != last {
+		t.Fatalf("scrolling stops at the end: off %d, want %d", m.diff.off, last)
+	}
+	press(m, "pgup", "pgup", "pgup", "pgup", "pgup")
+	if m.diff.off != 0 {
+		t.Fatalf("scrolling stops at the top: off %d", m.diff.off)
 	}
 }
 
