@@ -25,6 +25,8 @@ mise run start -- -config examples/config.example.json
 mise run install-cli        # installs the git-tui command into ~/go/bin
 ```
 
+`git-tui -version` prints the version it was built from (for example `v0.1.0`, or a pre-release version between releases).
+
 After `mise run install-cli`, run `git-tui` from anywhere (`~/go/bin` must be on your `PATH`). Run it again after pulling changes.
 
 ## Configuration

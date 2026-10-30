@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -18,7 +19,18 @@ import (
 func main() {
 	cfgFlag := flag.String("config", "", "path to config JSON (default $GIT_TUI_CONFIG or ~/.config/git-tui/config.json)")
 	demo := flag.Bool("demo", false, "use built-in fixture data instead of real repositories")
+	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *version {
+		// Go stamps the version from the git tag at build time, e.g. v0.1.0, or a pseudo-version between tags.
+		v := "(devel)"
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+			v = info.Main.Version
+		}
+		fmt.Println("git-tui", v)
+		return
+	}
 
 	// Demo mode never touches the network, so PR pictures stay as text there.
 	opts := ui.Options{Demo: *demo, Images: !*demo && termimg.Supported(os.Getenv), Tools: map[string]string{}}
