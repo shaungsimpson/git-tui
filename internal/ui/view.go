@@ -299,6 +299,65 @@ func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 		seg{clean(c.Author), m.st.muted})
 }
 
+// tagBase is the base tag chosen in Tags, or "" when the comparison state belongs to another view.
+func (m *Model) tagBase() string {
+	if m.cmp.view == viewTags {
+		return m.cmp.base
+	}
+	return ""
+}
+
+// envState is the short marker for an environment row: a newer attempt that failed or is still running.
+func (m *Model) envState(e envRow) (string, string, lipgloss.Style) {
+	switch e.Latest {
+	case "":
+		if e.Commit == "" {
+			return "-", "no successful deployment", m.st.muted
+		}
+		return "·", "", m.st.ok
+	case "FAILURE", "ERROR":
+		return "!", "last attempt " + strings.ToLower(e.Latest), m.st.bad
+	}
+	return "…", strings.ToLower(strings.ReplaceAll(e.Latest, "_", " ")), m.st.warn
+}
+
+func (m *Model) envSegs(e envRow, w int, showRepo bool) []seg {
+	glyph, note, st := m.envState(e)
+	segs := []seg{{glyph + " ", st}}
+	if showRepo {
+		segs = append(segs, seg{pad(clean(e.Repo), 14), m.st.accent})
+	}
+	ref := clean(e.Ref)
+	if e.Ref == e.Commit { // deployed by commit ID; the ID is already in its own column
+		ref = ""
+	}
+	segs = append(segs, seg{pad(clean(e.Environment), 17), m.st.text}, seg{pad(short(e.Commit), 7), m.st.muted})
+	if w >= 70 && !e.When.IsZero() {
+		segs = append(segs, seg{e.When.Local().Format(dateFmt) + "  ", m.st.muted})
+	}
+	return append(segs, seg{ref + "  ", m.st.accent}, seg{note, st})
+}
+
+func (m *Model) envDetail(e envRow) []string {
+	_, note, st := m.envState(e)
+	lines := []string{
+		" " + m.st.text.Bold(true).Render(clean(e.Repo)+" · "+clean(e.Environment)),
+		m.kv("Commit", e.Commit, m.st.accent),
+	}
+	if e.Ref != "" && e.Ref != e.Commit {
+		lines = append(lines, m.kv("Ref", clean(e.Ref), m.st.text))
+	}
+	if !e.When.IsZero() {
+		lines = append(lines, m.kv("Deployed", e.When.Local().Format(dateFmt), m.st.text))
+	}
+	if e.Latest != "" {
+		lines = append(lines, m.kv("Latest", note+" at "+e.LatestWhen.Local().Format(dateFmt), st))
+	}
+	return append(lines, "",
+		m.st.muted.Render(" As recorded by GitHub Deployments; not verified against the running service."),
+		m.st.muted.Render(" Enter lists commits on origin/HEAD that this deployment does not contain."))
+}
+
 var checkText = map[gitx.CheckState]string{
 	gitx.ChecksNone: "no checks", gitx.ChecksPassing: "passing", gitx.ChecksPending: "pending", gitx.ChecksFailing: "failing",
 }
@@ -364,6 +423,10 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 	if f := m.filters[m.view]; f != "" {
 		filter = " · filter: " + clean(f)
 	}
+	if m.cmpOpen() {
+		cs := m.cmp.res.val
+		return fmt.Sprintf("%s · %d commits", m.cmp.title, len(cs)), func(i int) []seg { return m.commitSegs(cs[i], w, false) }
+	}
 	switch m.view {
 	case viewOverview:
 		rows := m.overviewRows()
@@ -383,16 +446,16 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 	case viewRepo:
 		cs := m.repoCommits()
 		return "Repository · " + m.repoLabel() + filter, func(i int) []seg { return m.commitSegs(cs[i], w, false) }
-	case viewTags:
-		if m.cmp.open {
-			cs := m.cmp.res.val
-			title := fmt.Sprintf("Commits between %s and %s · %d commits", clean(m.cmp.base), clean(m.cmp.head), len(cs))
-			return title, func(i int) []seg { return m.commitSegs(cs[i], w, false) }
+	case viewEnvs:
+		envs := m.envList()
+		return fmt.Sprintf("Environments · %s · %d recorded%s", m.repoLabel(), len(envs), filter), func(i int) []seg {
+			return m.envSegs(envs[i], w, m.repo == 0)
 		}
+	case viewTags:
 		tags := m.tagList()
 		title := "Tags · " + m.repoLabel() + filter
-		if m.cmp.base != "" {
-			title += " · base " + clean(m.cmp.base)
+		if base := m.tagBase(); base != "" {
+			title += " · base " + clean(base)
 		}
 		nameW := 8
 		for _, t := range tags {
@@ -402,7 +465,7 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 			t := tags[i]
 			name := pad(clean(t.Name), nameW)
 			st := m.st.text
-			if t.Name == m.cmp.base {
+			if t.Name == m.tagBase() {
 				st = m.st.warn
 			}
 			segs := []seg{{name, st}}
@@ -468,6 +531,13 @@ func (m *Model) emptyMessage() (string, lipgloss.Style) {
 	if f := m.filters[m.view]; f != "" && m.filterable() {
 		return "No matches for \"" + clean(f) + "\". Esc clears the filter.", m.st.muted
 	}
+	if m.cmpOpen() {
+		msg, st := slotMessage(m, &m.cmp.res, "Loading commits…", m.cmp.empty)
+		if m.cmp.view == viewEnvs && m.cmp.res.err != nil {
+			msg += " The deployed commit may be newer than your clone: run git fetch, then Ctrl+R."
+		}
+		return msg, st
+	}
 	needRepo := func() (string, lipgloss.Style, bool) {
 		r := m.selected()
 		switch {
@@ -506,10 +576,16 @@ func (m *Model) emptyMessage() (string, lipgloss.Style) {
 		if msg, st, ok := needRepo(); ok {
 			return msg, st
 		}
-		if m.cmp.open {
-			return slotMessage(m, &m.cmp.res, "Comparing tags…", "No commits between "+clean(m.cmp.base)+" and "+clean(m.cmp.head)+".")
-		}
 		return slotMessage(m, &m.selected().tags, "Loading tags…", "No tags in this repository.")
+	case viewEnvs:
+		h := m.health()
+		if h.loading > 0 {
+			return "Loading deployments from GitHub…", m.st.muted
+		}
+		if len(h.errs) > 0 {
+			return "Could not read deployments: " + h.errs[0], m.st.bad
+		}
+		return "No deployments are recorded on GitHub for these repositories.", m.st.muted
 	}
 	return "Nothing to show.", m.st.muted
 }
@@ -607,6 +683,9 @@ func (m *Model) detailLines() []string {
 		return []string{m.st.muted.Render("Nothing selected.")}
 	}
 	i := *cur
+	if m.cmpOpen() {
+		return m.commitDetail(m.cmp.res.val[i])
+	}
 	switch m.view {
 	case viewOverview:
 		r := &m.repos[m.overviewRows()[i]]
@@ -617,17 +696,16 @@ func (m *Model) detailLines() []string {
 		return m.prDetail(m.prList()[i])
 	case viewRepo:
 		return m.commitDetail(m.repoCommits()[i])
+	case viewEnvs:
+		return m.envDetail(m.envList()[i])
 	case viewTags:
-		if m.cmp.open {
-			return m.commitDetail(m.cmp.res.val[i])
-		}
 		t := m.tagList()[i]
 		hint := "Enter marks this tag as the comparison base."
-		switch {
-		case t.Name == m.cmp.base:
+		switch base := m.tagBase(); {
+		case t.Name == base:
 			hint = "This is the comparison base. Enter clears it."
-		case m.cmp.base != "":
-			hint = "Enter lists commits between " + clean(m.cmp.base) + " and this tag."
+		case base != "":
+			hint = "Enter lists commits between " + clean(base) + " and this tag."
 		}
 		return []string{
 			m.kv("Tag", clean(t.Name), m.st.accent),
@@ -730,8 +808,14 @@ func (m *Model) health() health {
 	case viewTags:
 		if r := m.selected(); r != nil {
 			addHealth(&h, r.cfg.Name, &r.tags)
-			addHealth(&h, r.cfg.Name, &m.cmp.res)
 		}
+	case viewEnvs:
+		for _, i := range m.scope() {
+			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].deps)
+		}
+	}
+	if m.cmpOpen() && m.cmp.repo > 0 && m.cmp.repo <= len(m.repos) {
+		addHealth(&h, m.repos[m.cmp.repo-1].cfg.Name, &m.cmp.res)
 	}
 	return h
 }

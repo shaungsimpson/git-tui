@@ -57,6 +57,7 @@ type Source interface {
 	Tags(ctx context.Context, repo, dir string) ([]Tag, error)
 	Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error)
 	PullRequests(ctx context.Context, repo, dir string) ([]PR, error)
+	Deployments(ctx context.Context, repo, dir string) ([]Deployment, error)
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.
@@ -134,9 +135,10 @@ func (g Git) Tags(ctx context.Context, repo, dir string) ([]Tag, error) {
 	return ParseTags(out), nil
 }
 
-// Compare lists commits reachable from head but not from base.
+// Compare lists commits reachable from head but not from base. Both are git revisions such as
+// "refs/tags/v1" or a commit ID; --end-of-options stops either being read as an option.
 func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error) {
-	out, err := g.run(ctx, dir, "log", "-z", logFormat, "refs/tags/"+base+"..refs/tags/"+head, "--")
+	out, err := g.run(ctx, dir, "log", "-z", logFormat, "--end-of-options", base+".."+head, "--")
 	if err != nil {
 		return nil, err
 	}

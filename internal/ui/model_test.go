@@ -309,7 +309,7 @@ func TestFailedLoadRetriesOnlyOnRefresh(t *testing.T) {
 
 func TestPullRequestsViewAndConnection(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
-	github := func() connRow { return m.githubRow() }
+	github := func() connRow { return m.connections()[2] } // GitHub (pull requests)
 	if github().state != "not checked yet" {
 		t.Fatalf("before loading: %q", github().state)
 	}
@@ -338,6 +338,54 @@ func TestPullRequestsViewAndConnection(t *testing.T) {
 		if !strings.HasPrefix("#"+strconv.Itoa(p.Number), "#47") {
 			t.Fatalf("filter let through #%d", p.Number)
 		}
+	}
+}
+
+func TestEnvironmentPendingCommits(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "shift+tab", "j", "tab", "g", "e") // pick backend first: switching repository would reset the state anyway
+	envs := m.envList()
+	if m.view != viewEnvs || len(envs) == 0 {
+		t.Fatalf("view %v, %d environments", m.view, len(envs))
+	}
+	press(m, "enter")
+	if !m.cmpOpen() || m.cmp.baseRev != envs[0].Commit || m.cmp.headRev != "origin/HEAD" {
+		t.Fatalf("enter should list commits since the deployed commit: %+v", m.cmp)
+	}
+	if !strings.Contains(m.render(), "Not yet in") || m.filterable() {
+		t.Fatal("pending list title missing, or filter offered on it")
+	}
+	// A reload showing a newer deployed commit reopens the list against it.
+	r := &m.repos[envs[0].repo]
+	moved := slices.Clone(r.deps.val)
+	for i := range moved {
+		if moved[i].Environment == envs[0].Environment {
+			moved[i].Commit = strings.Repeat("f", 40)
+		}
+	}
+	r.deps.gen++
+	if _, cmd := m.Update(resultMsg{kind: kindDeps, repo: envs[0].repo, gen: r.deps.gen, val: moved}); cmd == nil || m.cmp.baseRev != strings.Repeat("f", 40) {
+		t.Fatalf("open list should follow the new deployed commit: %q", m.cmp.baseRev)
+	}
+	if !strings.Contains(m.cmp.title, "fffffff") {
+		t.Fatalf("title should name the new commit: %q", m.cmp.title)
+	}
+
+	press(m, "esc")
+	if m.cmpOpen() || m.view != viewEnvs {
+		t.Fatal("esc should return to the environment list")
+	}
+
+	// Leftover environment state must not become a base tag in Tags.
+	press(m, "g", "t", "enter")
+	if m.cmp.view != viewTags || m.cmp.base != m.tagList()[0].Name || m.cmp.open {
+		t.Fatalf("first Enter in Tags should only pick a base tag: %+v", m.cmp)
+	}
+
+	// No successful deployment: nothing opens and nothing reaches git.
+	m.cmp = compareState{}
+	if cmd := m.openPending(envRow{0, gitx.Deployment{Repo: "backend", Environment: "old", Latest: "FAILURE"}}); cmd != nil || m.cmp.open {
+		t.Fatal("an environment without a deployed commit must not open")
 	}
 }
 

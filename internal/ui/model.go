@@ -24,11 +24,12 @@ const (
 	viewPRs
 	viewRepo
 	viewTags
+	viewEnvs
 	viewConnections
 	viewCount
 )
 
-var viewNames = [viewCount]string{"Overview", "Activity", "Pull requests", "Repository", "Tags", "Connections"}
+var viewNames = [viewCount]string{"Overview", "Activity", "Pull requests", "Repository", "Tags", "Environments", "Connections"}
 
 type paneID int
 
@@ -58,6 +59,7 @@ type repoState struct {
 	log     slot[[]gitx.Commit]
 	tags    slot[[]gitx.Tag]
 	prs     slot[[]gitx.PR]
+	deps    slot[[]gitx.Deployment]
 }
 
 type dataKind int
@@ -67,6 +69,7 @@ const (
 	kindLog
 	kindTags
 	kindPRs
+	kindDeps
 	kindCompare
 )
 
@@ -79,13 +82,23 @@ type resultMsg struct {
 
 type seqExpiredMsg struct{ gen int }
 
-// compareState is the Tags flow: pick a base tag, then a head tag, then browse commits between them.
+// compareState is a commit list between two revisions, opened from Tags (pick a base tag, then a head tag)
+// or from Environments (a deployed commit against origin/HEAD). view says which one owns it.
 type compareState struct {
-	repo       int
-	base, head string
-	open       bool
-	res        slot[[]gitx.Commit]
-	cur, off   int
+	view             viewID
+	repo             int // 1-based, like Model.repo
+	base, head       string
+	baseRev, headRev string
+	title, empty     string
+	open             bool
+	res              slot[[]gitx.Commit]
+	cur, off         int
+}
+
+// envRow is one environment of one repository; repo indexes Model.repos.
+type envRow struct {
+	repo int
+	gitx.Deployment
 }
 
 // Options configures a Model. Tools maps executable names to their resolved path ("" if absent).
@@ -180,7 +193,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingG = false
 		}
 	case resultMsg:
-		m.applyResult(msg)
+		return m, m.applyResult(msg)
 	default:
 		if m.filtering {
 			var cmd tea.Cmd
@@ -344,7 +357,7 @@ func (m *Model) selectRepo(i int) {
 	m.repo = i
 	m.cancelCompare()
 	m.cmp = compareState{res: slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}}
-	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags} {
+	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags, viewEnvs} {
 		m.cursor[v], m.offset[v] = 0, 0
 	}
 	m.detOff = 0
@@ -384,8 +397,10 @@ func (m *Model) open() tea.Cmd {
 		rows := m.overviewRows()
 		m.selectRepo(rows[*cur] + 1)
 		return m.setView(viewRepo)
-	case m.view == viewTags && !m.cmp.open:
+	case m.view == viewTags && !m.cmpOpen():
 		return m.pickTag(m.tagList()[*cur].Name)
+	case m.view == viewEnvs && !m.cmpOpen():
+		return m.openPending(m.envList()[*cur])
 	}
 	m.detOff = 0
 	if m.layout().detailW > 0 {
@@ -398,6 +413,10 @@ func (m *Model) open() tea.Cmd {
 
 func (m *Model) pickTag(name string) tea.Cmd {
 	c := &m.cmp
+	if c.view != viewTags { // state left by Environments; start a fresh tag selection
+		m.cancelCompare()
+		*c = compareState{view: viewTags, res: slot[[]gitx.Commit]{gen: c.res.gen + 1}}
+	}
 	if c.base == "" {
 		c.base, c.repo = name, m.repo
 		m.flash = "Base " + name + " selected. Choose another tag and press Enter."
@@ -413,9 +432,33 @@ func (m *Model) pickTag(name string) tea.Cmd {
 	if idx(base) < idx(head) { // tags are newest first, so the base is the one further down
 		base, head = head, base
 	}
-	c.base, c.head, c.open, c.cur, c.off = base, head, true, 0, 0
+	c.view, c.base, c.head, c.open, c.cur, c.off = viewTags, base, head, true, 0, 0
+	c.baseRev, c.headRev = "refs/tags/"+base, "refs/tags/"+head
+	c.title = "Commits between " + clean(base) + " and " + clean(head)
+	c.empty = "No commits between " + clean(base) + " and " + clean(head) + "."
 	return m.loadCompare()
 }
+
+// openPending lists commits on origin/HEAD that the environment's deployed commit does not contain.
+func (m *Model) openPending(e envRow) tea.Cmd {
+	if !gitx.IsCommitID(e.Commit) { // also guards the git revision: only a plain object ID reaches git
+		m.flash = "No successful deployment is recorded for " + clean(e.Environment) + "."
+		return nil
+	}
+	m.cancelCompare()
+	env := clean(e.Repo) + " " + clean(e.Environment)
+	m.cmp = compareState{
+		view: viewEnvs, repo: e.repo + 1, open: true,
+		base: e.Environment, baseRev: e.Commit, headRev: "origin/HEAD",
+		title: "Not yet in " + env + " · on origin/HEAD after " + e.Commit[:7],
+		empty: "Nothing to release: " + env + " already has everything on origin/HEAD (as of your last fetch).",
+		res:   slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1},
+	}
+	return m.loadCompare()
+}
+
+// cmpOpen reports whether the current view is showing its commit list.
+func (m *Model) cmpOpen() bool { return m.cmp.open && m.cmp.view == m.view }
 
 func (m *Model) canOpen() bool {
 	if m.focus == paneSidebar {
@@ -426,19 +469,19 @@ func (m *Model) canOpen() bool {
 }
 
 func (m *Model) canBack() bool {
-	inTags := m.view == viewTags && (m.cmp.open || m.cmp.base != "")
-	return m.inspect || m.focus == paneDetail || inTags || m.filters[m.view] != ""
+	baseSet := m.view == viewTags && m.cmp.view == viewTags && m.cmp.base != ""
+	return m.inspect || m.focus == paneDetail || m.cmpOpen() || baseSet || m.filters[m.view] != ""
 }
 
 func (m *Model) back() {
 	switch {
 	case m.inspect || m.focus == paneDetail:
 		m.inspect, m.focus = false, paneMain
-	case m.view == viewTags && m.cmp.open:
+	case m.cmpOpen():
 		m.cancelCompare()
 		m.cmp.open, m.cmp.head = false, ""
 		m.cmp.res = slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}
-	case m.view == viewTags && m.cmp.base != "":
+	case m.view == viewTags && m.cmp.view == viewTags && m.cmp.base != "":
 		m.cmp.base = ""
 	case m.filters[m.view] != "":
 		m.setFilter("")
@@ -449,10 +492,8 @@ func (m *Model) filterable() bool {
 	switch m.view {
 	case viewConnections:
 		return false
-	case viewTags:
-		return !m.cmp.open
 	}
-	return true
+	return !m.cmpOpen()
 }
 
 func (m *Model) setFilter(f string) {
@@ -496,9 +537,12 @@ func (m *Model) listFor(v viewID) (int, *int, *int) {
 		return len(m.prList()), cur, off
 	case viewRepo:
 		return len(m.repoCommits()), cur, off
-	case viewTags:
-		if m.cmp.open {
+	case viewTags, viewEnvs:
+		if m.cmp.open && m.cmp.view == v {
 			return len(m.cmp.res.val), &m.cmp.cur, &m.cmp.off
+		}
+		if v == viewEnvs {
+			return len(m.envList()), cur, off
 		}
 		return len(m.tagList()), cur, off
 	default:
@@ -562,6 +606,20 @@ func (m *Model) prList() []gitx.PR {
 	return out
 }
 
+// envList is every recorded environment of the selected repositories, most recently deployed first.
+func (m *Model) envList() []envRow {
+	var out []envRow
+	for _, i := range m.scope() {
+		for _, d := range m.repos[i].deps.val {
+			if match(m.filters[viewEnvs], d.Environment, d.Repo, d.Ref, d.Commit) {
+				out = append(out, envRow{i, d})
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b envRow) int { return b.When.Compare(a.When) })
+	return out
+}
+
 func (m *Model) repoCommits() []gitx.Commit {
 	r := m.selected()
 	if r == nil {
@@ -610,9 +668,13 @@ func (m *Model) ensure(force bool) tea.Cmd {
 		if m.repo > 0 {
 			cmds = append(cmds, m.load(m.repo-1, kindTags, force))
 		}
-		if force && m.cmp.open {
-			cmds = append(cmds, m.loadCompare())
+	case viewEnvs:
+		for _, i := range m.scope() {
+			cmds = append(cmds, m.load(i, kindDeps, force))
 		}
+	}
+	if force && m.cmpOpen() {
+		cmds = append(cmds, m.loadCompare())
 	}
 	return tea.Batch(cmds...)
 }
@@ -660,6 +722,8 @@ func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 		return start(m, &r.log, force, kind, i, func(ctx context.Context) ([]gitx.Commit, error) { return src.Log(ctx, name, dir, logDepth) })
 	case kindPRs:
 		return start(m, &r.prs, force, kind, i, func(ctx context.Context) ([]gitx.PR, error) { return src.PullRequests(ctx, name, dir) })
+	case kindDeps:
+		return start(m, &r.deps, force, kind, i, func(ctx context.Context) ([]gitx.Deployment, error) { return src.Deployments(ctx, name, dir) })
 	default:
 		return start(m, &r.tags, force, kind, i, func(ctx context.Context) ([]gitx.Tag, error) { return src.Tags(ctx, name, dir) })
 	}
@@ -667,12 +731,12 @@ func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 
 // loadCompare always starts a fresh request; any in-flight comparison is cancelled and its result ignored.
 func (m *Model) loadCompare() tea.Cmd {
-	r := m.selected()
-	if r == nil {
+	if m.cmp.repo < 1 || m.cmp.repo > len(m.repos) {
 		return nil
 	}
-	src, name, dir, base, head := m.opts.Source, r.cfg.Name, r.cfg.Path, m.cmp.base, m.cmp.head
-	return start(m, &m.cmp.res, true, kindCompare, m.repo, func(ctx context.Context) ([]gitx.Commit, error) {
+	r := &m.repos[m.cmp.repo-1]
+	src, name, dir, base, head := m.opts.Source, r.cfg.Name, r.cfg.Path, m.cmp.baseRev, m.cmp.headRev
+	return start(m, &m.cmp.res, true, kindCompare, m.cmp.repo, func(ctx context.Context) ([]gitx.Commit, error) {
 		return src.Compare(ctx, name, dir, base, head)
 	})
 }
@@ -681,13 +745,17 @@ func (m *Model) loadCompare() tea.Cmd {
 func (m *Model) rowKeys(v viewID) []string {
 	var keys []string
 	switch v {
-	case viewActivity, viewRepo:
-		cs := m.activity()
-		if v == viewRepo {
-			cs = m.repoCommits()
-		}
-		for _, c := range cs {
+	case viewActivity:
+		for _, c := range m.activity() {
 			keys = append(keys, c.Repo+"/"+c.Hash)
+		}
+	case viewRepo:
+		for _, c := range m.repoCommits() {
+			keys = append(keys, c.Repo+"/"+c.Hash)
+		}
+	case viewEnvs: // the open commit list keeps its own cursor, so this one always tracks environment rows
+		for _, e := range m.envList() {
+			keys = append(keys, e.Repo+"/"+e.Environment)
 		}
 	case viewPRs:
 		for _, p := range m.prList() {
@@ -698,7 +766,8 @@ func (m *Model) rowKeys(v viewID) []string {
 }
 
 // applyResult stores a load result and keeps the same row selected if the list reorders around it.
-func (m *Model) applyResult(msg resultMsg) {
+func (m *Model) applyResult(msg resultMsg) tea.Cmd {
+	var cmd tea.Cmd
 	keep := "" // a cursor on the first row stays on top, so newest-first lists show new rows on load
 	if keys := m.rowKeys(m.view); m.cursor[m.view] > 0 && m.cursor[m.view] < len(keys) {
 		keep = keys[m.cursor[m.view]]
@@ -718,6 +787,9 @@ func (m *Model) applyResult(msg resultMsg) {
 			finish(&r.tags, msg)
 		case kindPRs:
 			finish(&r.prs, msg)
+		case kindDeps:
+			finish(&r.deps, msg)
+			cmd = m.followDeploy(msg.repo)
 		}
 	}
 	if keys := m.rowKeys(m.view); keep != "" {
@@ -727,4 +799,18 @@ func (m *Model) applyResult(msg resultMsg) {
 		}
 	}
 	m.clampAll()
+	return cmd
+}
+
+// followDeploy reopens an open "not yet deployed" list when reloaded deployments show a newer deployed commit.
+func (m *Model) followDeploy(repo int) tea.Cmd {
+	if !m.cmp.open || m.cmp.view != viewEnvs || m.cmp.repo != repo+1 {
+		return nil
+	}
+	for _, d := range m.repos[repo].deps.val {
+		if d.Environment == m.cmp.base && d.Commit != m.cmp.baseRev && gitx.IsCommitID(d.Commit) {
+			return m.openPending(envRow{repo, d})
+		}
+	}
+	return nil
 }

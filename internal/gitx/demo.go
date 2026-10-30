@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -96,6 +97,10 @@ func (Demo) Compare(_ context.Context, repo, _, base, head string) ([]Commit, er
 	if err := demoErr(repo); err != nil {
 		return nil, err
 	}
+	base, head = strings.TrimPrefix(base, "refs/tags/"), strings.TrimPrefix(head, "refs/tags/")
+	if !strings.HasPrefix(base, "v1.") { // an environment's commit compared with origin/HEAD
+		return demoCommits(repo, len(repo)%4, 0), nil
+	}
 	var b, h int
 	fmt.Sscanf(base, "v1.%d.0", &b)
 	fmt.Sscanf(head, "v1.%d.0", &h)
@@ -130,4 +135,24 @@ func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
 		})
 	}
 	return prs, nil
+}
+
+func (Demo) Deployments(_ context.Context, repo, _ string) ([]Deployment, error) {
+	if err := demoErr(repo); err != nil {
+		return nil, err
+	}
+	envs := []string{"prod", "stage", "dev-2"}
+	var deps []Deployment
+	for i, env := range envs {
+		c := demoCommits(repo, 1, len(repo)%4+i*2)[0]
+		d := Deployment{Repo: repo, Environment: env, Commit: c.Hash, When: c.When.Add(time.Hour), Ref: "main"}
+		if env == "prod" {
+			d.Ref = "v1.9.0"
+		}
+		if repo == "frontend" && env == "stage" {
+			d.Latest, d.LatestWhen = "FAILURE", demoBase
+		}
+		deps = append(deps, d)
+	}
+	return deps, nil
 }
