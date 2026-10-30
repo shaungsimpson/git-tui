@@ -10,12 +10,14 @@ const (
 	actFocusNext
 	actFocusPrev
 	actOpen
+	actBrowse
 	actBack
 	actFilter
 	actGo
 	actRefresh
 	actHelp
 	actTheme
+	actTime
 	actQuit
 )
 
@@ -39,12 +41,14 @@ var actions = []action{
 	{id: actFocusNext, key: bind("tab", "next pane", "tab"), hint: true},
 	{id: actFocusPrev, key: bind("shift+tab", "previous pane", "shift+tab")},
 	{id: actOpen, key: bind("enter", "open", "enter"), hint: true, when: (*Model).canOpen},
+	{id: actBrowse, key: bind("o", "open in browser", "o"), hint: true, when: (*Model).canBrowse},
 	{id: actBack, key: bind("esc", "back", "esc"), hint: true, when: (*Model).canBack},
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
 	{id: actGo, key: bind("g", "go to view…", "g")},
 	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r")},
 	{id: actHelp, key: bind("?", "help", "?"), hint: true},
 	{id: actTheme, key: bind("f2", "theme", "f2")},
+	{id: actTime, key: bind("u", "UTC / local times", "u")},
 	{id: actQuit, key: bind("ctrl+c", "quit", "ctrl+c")},
 }
 
@@ -59,6 +63,7 @@ var goKeys = []struct {
 	{"r", viewRepo},
 	{"t", viewTags},
 	{"e", viewEnvs},
+	{"d", viewRuns},
 	{"c", viewConnections},
 }
 

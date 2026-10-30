@@ -156,3 +156,24 @@ func (Demo) Deployments(_ context.Context, repo, _ string) ([]Deployment, error)
 	}
 	return deps, nil
 }
+
+func (Demo) DeployRuns(_ context.Context, repo, _ string) ([]Run, error) {
+	if err := demoErr(repo); err != nil {
+		return nil, err
+	}
+	states := [][2]string{{"in_progress", ""}, {"completed", "success"}, {"completed", "failure"}, {"completed", "success"}}
+	var runs []Run
+	for i, st := range states {
+		if repo != "backend" && i == 0 {
+			continue // only one demo deploy is still running
+		}
+		c := demoCommits(repo, 1, i*3)[0]
+		runs = append(runs, Run{
+			Repo: repo, ID: int64(9000 + len(repo)*10 + i), Workflow: "Deploy " + []string{"stage", "stage", "prod", "stage"}[i],
+			Title: c.Subject, Event: "push", Branch: "main", Commit: c.Hash, Status: st[0], Conclusion: st[1],
+			URL:     fmt.Sprintf("https://github.com/example/%s/actions/runs/%d", repo, 9000+len(repo)*10+i),
+			Started: c.When, Updated: c.When.Add(time.Duration(4+i) * time.Minute),
+		})
+	}
+	return runs, nil
+}

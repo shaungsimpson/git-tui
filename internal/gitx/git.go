@@ -58,6 +58,7 @@ type Source interface {
 	Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error)
 	PullRequests(ctx context.Context, repo, dir string) ([]PR, error)
 	Deployments(ctx context.Context, repo, dir string) ([]Deployment, error)
+	DeployRuns(ctx context.Context, repo, dir string) ([]Run, error)
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.
@@ -120,6 +121,9 @@ func (g Git) Summary(ctx context.Context, repo, dir string) (Summary, error) {
 
 func (g Git) Log(ctx context.Context, repo, dir string, n int) ([]Commit, error) {
 	out, err := g.run(ctx, dir, "log", "-z", "-n", strconv.Itoa(n), logFormat)
+	if err != nil && strings.Contains(err.Error(), "does not have any commits yet") {
+		return nil, nil // a new repository: no history is not a failure
+	}
 	if err != nil {
 		return nil, err
 	}

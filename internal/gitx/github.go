@@ -36,13 +36,9 @@ const ghTimeout = 20 * time.Second // network call, unlike the local git command
 
 // PullRequests lists open pull requests for the repository's origin remote using gh.
 func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
-	url, err := g.run(ctx, dir, "remote", "get-url", "origin")
+	slug, err := g.slug(ctx, dir)
 	if err != nil {
 		return nil, err
-	}
-	slug, ok := RepoSlug(url)
-	if !ok {
-		return nil, fmt.Errorf("origin is not a GitHub remote: %s", strings.TrimSpace(url))
 	}
 	// shortcut: only the 100 most recently created open PRs per repository; page if a repository has more.
 	out, err := command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
@@ -51,6 +47,19 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 		return nil, err
 	}
 	return ParsePRs(repo, out)
+}
+
+// slug is the GitHub "owner/name" of the repository's origin remote.
+func (g Git) slug(ctx context.Context, dir string) (string, error) {
+	url, err := g.run(ctx, dir, "remote", "get-url", "origin")
+	if err != nil {
+		return "", err
+	}
+	slug, ok := RepoSlug(url)
+	if !ok {
+		return "", fmt.Errorf("origin is not a GitHub remote: %s", strings.TrimSpace(url))
+	}
+	return slug, nil
 }
 
 // RepoSlug returns "owner/name" for a github.com remote URL in SSH, scp-like or HTTPS form.

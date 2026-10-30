@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -386,6 +387,122 @@ func TestEnvironmentPendingCommits(t *testing.T) {
 	m.cmp = compareState{}
 	if cmd := m.openPending(envRow{0, gitx.Deployment{Repo: "backend", Environment: "old", Latest: "FAILURE"}}); cmd != nil || m.cmp.open {
 		t.Fatal("an environment without a deployed commit must not open")
+	}
+}
+
+func TestDeployRunsPolling(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "d")
+	if m.view != viewRuns || len(m.runList()) == 0 {
+		t.Fatalf("view %v, %d runs", m.view, len(m.runList()))
+	}
+	if !m.polling {
+		t.Fatal("a running deploy should start polling")
+	}
+	if !strings.Contains(m.statusLine(), "watching") {
+		t.Fatal("status line should say deploys are being watched")
+	}
+
+	gen := m.pollGen
+	if _, cmd := m.Update(pollMsg{gen}); cmd == nil || m.polling {
+		t.Fatal("a current tick should reload runs and wait for the results to reschedule")
+	}
+	for i := range m.repos {
+		if want := i == 0; m.repos[i].runs.loading != want { // only backend has a running demo deploy
+			t.Fatalf("repo %d reloading=%v; only repositories with a running deploy should reload", i, m.repos[i].runs.loading)
+		}
+	}
+	r := &m.repos[0].runs // backend has the running demo deploy
+	r.gen++
+	m.Update(resultMsg{kind: kindRuns, repo: 0, gen: r.gen, err: context.DeadlineExceeded})
+	if m.polling {
+		t.Fatal("a failed reload must stop polling")
+	}
+
+	press(m, "g", "a")
+	if _, cmd := m.Update(pollMsg{gen}); cmd != nil || m.polling {
+		t.Fatal("a tick from before leaving the view must be ignored")
+	}
+
+	press(m, "shift+tab", "j", "j", "tab", "g", "d") // frontend: no running deploy
+	if m.repo != 2 || m.polling {
+		t.Fatalf("repo %d polling %v: no running deploy, so no polling", m.repo, m.polling)
+	}
+	press(m, "shift+tab", "k") // backend, whose running deploy is already loaded: nothing reloads
+	if m.repo != 1 || !m.polling {
+		t.Fatalf("repo %d polling %v: selecting a repository with a running deploy should start watching", m.repo, m.polling)
+	}
+}
+
+func TestOpenPullRequestInBrowser(t *testing.T) {
+	var opened []string
+	real := openBrowser
+	openBrowser = func(url string) error { opened = append(opened, url); return nil }
+	t.Cleanup(func() { openBrowser = real })
+
+	m := setup(t, demoOpts(), 140, 40)
+	if m.canBrowse() {
+		t.Fatal("o should only be offered on pull requests")
+	}
+	press(m, "g", "p", "j")
+	want := m.prList()[1]
+	press(m, "o")
+	if len(opened) != 1 || opened[0] != want.URL {
+		t.Fatalf("opened %v, want %s", opened, want.URL)
+	}
+	if !strings.Contains(m.flash, "#"+strconv.Itoa(want.Number)) {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if !strings.Contains(m.footer(), "open in browser") {
+		t.Fatal("footer should offer o on pull requests")
+	}
+
+	m.repos[0].prs.val[0].URL = "file:///etc/passwd"
+	for i, p := range m.prList() {
+		if p.URL == "file:///etc/passwd" {
+			m.cursor[viewPRs] = i
+		}
+	}
+	press(m, "o")
+	if len(opened) != 1 {
+		t.Fatalf("a non-https link must not be opened: %v", opened)
+	}
+}
+
+func TestShortDatesAndFailedRefreshMark(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	m.utc = true
+	at := time.Date(2026, 10, 30, 3, 12, 0, 0, time.UTC)
+	if m.stamp(at, 80) != "2026-10-30 03:12" || m.stamp(at, 60) != "10-30 03:12" {
+		t.Fatalf("stamp: %q / %q", m.stamp(at, 80), m.stamp(at, 60))
+	}
+	press(m, "g", "a")
+	if !regexp.MustCompile(`\d\d-\d\d \d\d:\d\d`).MatchString(m.render()) {
+		t.Fatal("Activity at 140 columns should still show dates")
+	}
+
+	r := &m.repos[0] // loaded earlier; now a refresh fails
+	r.summary.err = context.DeadlineExceeded
+	glyph := m.overviewSegs(r)[0]
+	if glyph.st.Render(glyph.s) != m.st.bad.Render(glyph.s) || !strings.HasPrefix(glyph.s, "!") {
+		t.Fatalf("a failed refresh should keep a red !, got %q", glyph.s)
+	}
+}
+
+func TestToggleUTC(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	at := time.Date(2026, 10, 30, 3, 12, 0, 0, time.UTC)
+	local := at.Local().Format(dateFmt)
+	if m.when(at) != local || strings.Contains(m.header(), " UTC") {
+		t.Fatal("times should start in the local zone")
+	}
+	press(m, "u")
+	if m.when(at) != "2026-10-30 03:12" || !strings.Contains(m.header(), "UTC") || !strings.Contains(m.flash, "UTC") {
+		t.Fatalf("after u: %q, header %q", m.when(at), m.header())
+	}
+	press(m, "u")
+	if m.when(at) != local {
+		t.Fatal("u again should switch back to local time")
 	}
 }
 

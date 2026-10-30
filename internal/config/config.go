@@ -2,9 +2,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,8 +78,13 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields() // a misspelt key such as "repos" should say so, not load nothing
+	if err := dec.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if _, err := dec.Token(); err != io.EOF { // a decoder stops after one value; anything after it is a mistake
+		return cfg, fmt.Errorf("parse %s: unexpected content after the configuration", path)
 	}
 	cfg.Source = path
 	for i := range cfg.Repositories {

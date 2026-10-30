@@ -121,6 +121,20 @@ func TestGitAgainstTempRepo(t *testing.T) {
 	}
 }
 
+func TestLogEmptyRepository(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = dir
+	cmd.Env = gitEnv(cmd.Environ())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	commits, err := Git{}.Log(context.Background(), "new", dir, 5)
+	if err != nil || len(commits) != 0 {
+		t.Fatalf("a repository with no commits should give no history and no error: %v %v", commits, err)
+	}
+}
+
 func TestGitEnvDropsInheritedGitVars(t *testing.T) {
 	env := gitEnv([]string{"PATH=/bin", "GIT_DIR=/elsewhere/.git", "GIT_WORK_TREE=/elsewhere", "HOME=/h"})
 	for _, kv := range env {

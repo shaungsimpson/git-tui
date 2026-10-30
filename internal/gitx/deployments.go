@@ -29,13 +29,9 @@ type deployNode struct {
 
 // Deployments reads, per environment, the newest successful deployment and any newer unsuccessful attempt.
 func (g Git) Deployments(ctx context.Context, repo, dir string) ([]Deployment, error) {
-	url, err := g.run(ctx, dir, "remote", "get-url", "origin")
+	slug, err := g.slug(ctx, dir)
 	if err != nil {
 		return nil, err
-	}
-	slug, ok := RepoSlug(url)
-	if !ok {
-		return nil, fmt.Errorf("origin is not a GitHub remote: %s", strings.TrimSpace(url))
 	}
 	owner, name, _ := strings.Cut(slug, "/")
 	// shortcut: first 50 environments per repository; page if a repository has more.

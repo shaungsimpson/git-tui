@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -134,6 +135,30 @@ func (m *Model) join(cols []string, h int) string {
 	return strings.Join(out, "\n")
 }
 
+// when formats a time in the zone the user chose with u: local by default, or UTC.
+func (m *Model) when(t time.Time) string {
+	if m.utc {
+		return t.UTC().Format(dateFmt)
+	}
+	return t.Local().Format(dateFmt)
+}
+
+// stamp is when for list rows: the full date on wide panes, month-day and time on narrower ones.
+func (m *Model) stamp(t time.Time, w int) string {
+	if w >= 70 {
+		return m.when(t)
+	}
+	return m.when(t)[len("2006-"):]
+}
+
+// zone names the zone times are shown in, such as "AEDT" or "UTC".
+func (m *Model) zone() string {
+	if m.utc {
+		return "UTC"
+	}
+	return time.Now().Format("MST")
+}
+
 // fit places left and right on one line of width w, truncating left first.
 func fit(left, right string, w int) string {
 	rw := lipgloss.Width(right)
@@ -162,7 +187,7 @@ func (m *Model) header() string {
 			tabs = append(tabs, m.st.tab.Render(viewNames[v]))
 		}
 	}
-	right := m.st.muted.Render(m.repoLabel() + " ")
+	right := m.st.muted.Render(m.repoLabel() + " · " + m.zone() + " ")
 	full := left + " " + strings.Join(tabs, "  ")
 	if lipgloss.Width(full)+lipgloss.Width(right)+1 > m.width {
 		full = left + " " + m.st.tabActive.Render(viewNames[m.view])
@@ -287,9 +312,7 @@ func (m *Model) mainLines(w, h int) []string {
 
 func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 	segs := []seg{}
-	if w >= 70 {
-		segs = append(segs, seg{c.When.Local().Format(dateFmt) + "  ", m.st.muted})
-	}
+	segs = append(segs, seg{m.stamp(c.When, w) + "  ", m.st.muted})
 	if showRepo {
 		segs = append(segs, seg{pad(clean(c.Repo), 14), m.st.accent})
 	}
@@ -305,6 +328,57 @@ func (m *Model) tagBase() string {
 		return m.cmp.base
 	}
 	return ""
+}
+
+// runState is the marker, label and style for a run: still going, or how it finished and how long it took.
+func (m *Model) runState(r gitx.Run) (string, string, lipgloss.Style) {
+	if r.Active() {
+		return "…", strings.ReplaceAll(r.Status, "_", " "), m.st.warn
+	}
+	took := ""
+	if !r.Started.IsZero() && r.Updated.After(r.Started) {
+		took = " " + r.Updated.Sub(r.Started).Round(time.Second).String()
+	}
+	switch r.Conclusion {
+	case "success":
+		return "·", "success" + took, m.st.ok
+	case "skipped", "neutral":
+		return "-", r.Conclusion, m.st.muted
+	}
+	return "!", strings.ReplaceAll(r.Conclusion, "_", " ") + took, m.st.bad
+}
+
+func (m *Model) runSegs(r gitx.Run, w int, showRepo bool) []seg {
+	glyph, state, st := m.runState(r)
+	segs := []seg{{glyph + " ", st}}
+	if showRepo {
+		segs = append(segs, seg{pad(clean(r.Repo), 14), m.st.accent})
+	}
+	// Status sits next to the workflow so it survives truncation on narrower panes.
+	segs = append(segs, seg{pad(clean(r.Workflow), 20), m.st.text}, seg{pad(state, 16), st}, seg{pad(clean(r.Branch), 18), m.st.accent})
+	segs = append(segs, seg{m.stamp(r.Started, w) + "  ", m.st.muted})
+	return append(segs, seg{clean(r.Title), m.st.muted})
+}
+
+func (m *Model) runDetail(r gitx.Run) []string {
+	_, state, st := m.runState(r)
+	lines := []string{
+		" " + m.st.text.Bold(true).Render(clean(r.Workflow)),
+		m.kv("Repo", clean(r.Repo), m.st.text),
+		m.kv("Status", state, st),
+		m.kv("Trigger", clean(r.Event), m.st.text),
+		m.kv("Branch", clean(r.Branch), m.st.accent),
+		m.kv("Commit", r.Commit, m.st.text),
+		m.kv("Started", m.when(r.Started), m.st.text),
+		m.kv("Link", clean(r.URL), m.st.muted),
+		"",
+		" " + clean(r.Title),
+		"",
+	}
+	if r.Active() {
+		lines = append(lines, m.st.muted.Render(" Reloaded every 10 seconds while a deploy is running."))
+	}
+	return append(lines, m.st.muted.Render(" Deploy runs: workflows named \"deploy\" (not PR checks) and workflows that recorded a GitHub deployment."))
 }
 
 // envState is the short marker for an environment row: a newer attempt that failed or is still running.
@@ -332,8 +406,8 @@ func (m *Model) envSegs(e envRow, w int, showRepo bool) []seg {
 		ref = ""
 	}
 	segs = append(segs, seg{pad(clean(e.Environment), 17), m.st.text}, seg{pad(short(e.Commit), 7), m.st.muted})
-	if w >= 70 && !e.When.IsZero() {
-		segs = append(segs, seg{e.When.Local().Format(dateFmt) + "  ", m.st.muted})
+	if !e.When.IsZero() {
+		segs = append(segs, seg{m.stamp(e.When, w) + "  ", m.st.muted})
 	}
 	return append(segs, seg{ref + "  ", m.st.accent}, seg{note, st})
 }
@@ -348,10 +422,10 @@ func (m *Model) envDetail(e envRow) []string {
 		lines = append(lines, m.kv("Ref", clean(e.Ref), m.st.text))
 	}
 	if !e.When.IsZero() {
-		lines = append(lines, m.kv("Deployed", e.When.Local().Format(dateFmt), m.st.text))
+		lines = append(lines, m.kv("Deployed", m.when(e.When), m.st.text))
 	}
 	if e.Latest != "" {
-		lines = append(lines, m.kv("Latest", note+" at "+e.LatestWhen.Local().Format(dateFmt), st))
+		lines = append(lines, m.kv("Latest", note+" at "+m.when(e.LatestWhen), st))
 	}
 	return append(lines, "",
 		m.st.muted.Render(" As recorded by GitHub Deployments; not verified against the running service."),
@@ -397,9 +471,7 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
 	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.muted}, seg{pad(review, 8), rst})
-	if w >= 70 {
-		segs = append(segs, seg{p.Updated.Local().Format(dateFmt) + "  ", m.st.muted})
-	}
+	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted})
 	return append(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.st.muted})
 }
 
@@ -412,7 +484,7 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		m.kv("Branch", clean(p.Branch), m.st.text),
 		m.kv("Review", review, rst),
 		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
-		m.kv("Updated", p.Updated.Local().Format(dateFmt), m.st.text),
+		m.kv("Updated", m.when(p.Updated), m.st.text),
 		m.kv("Link", clean(p.URL), m.st.muted),
 	}
 }
@@ -446,6 +518,17 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 	case viewRepo:
 		cs := m.repoCommits()
 		return "Repository · " + m.repoLabel() + filter, func(i int) []seg { return m.commitSegs(cs[i], w, false) }
+	case viewRuns:
+		runs := m.runList()
+		active := 0
+		for _, r := range runs {
+			if r.Active() {
+				active++
+			}
+		}
+		return fmt.Sprintf("Deploys · %s · %d runs, %d running%s", m.repoLabel(), len(runs), active, filter), func(i int) []seg {
+			return m.runSegs(runs[i], w, m.repo == 0)
+		}
 	case viewEnvs:
 		envs := m.envList()
 		return fmt.Sprintf("Environments · %s · %d recorded%s", m.repoLabel(), len(envs), filter), func(i int) []seg {
@@ -469,9 +552,7 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 				st = m.st.warn
 			}
 			segs := []seg{{name, st}}
-			if w >= 70 {
-				segs = append(segs, seg{t.When.Local().Format(dateFmt) + "  ", m.st.muted})
-			}
+			segs = append(segs, seg{m.stamp(t.When, w) + "  ", m.st.muted})
 			return append(segs, seg{short(t.Commit) + "  ", m.st.muted}, seg{clean(t.Subject), m.st.text})
 		}
 	default:
@@ -505,6 +586,9 @@ func (m *Model) overviewSegs(r *repoState) []seg {
 		glyph.st = m.st.warn
 	} else {
 		glyph.st = m.st.ok
+	}
+	if strings.HasPrefix(glyph.s, "!") { // repoGlyph saw a failed load; keep the error colour over clean/changed
+		glyph.st = m.st.bad
 	}
 	tracking := "no upstream"
 	if s.HasAB {
@@ -577,6 +661,15 @@ func (m *Model) emptyMessage() (string, lipgloss.Style) {
 			return msg, st
 		}
 		return slotMessage(m, &m.selected().tags, "Loading tags…", "No tags in this repository.")
+	case viewRuns:
+		h := m.health()
+		if h.loading > 0 {
+			return "Loading deploy runs from GitHub…", m.st.muted
+		}
+		if len(h.errs) > 0 {
+			return "Could not read workflow runs: " + h.errs[0], m.st.bad
+		}
+		return "No recent deploy runs.", m.st.muted
 	case viewEnvs:
 		h := m.health()
 		if h.loading > 0 {
@@ -664,7 +757,7 @@ func (m *Model) commitDetail(c gitx.Commit) []string {
 		m.kv("Commit", c.Hash, m.st.accent),
 		m.kv("Repo", clean(c.Repo), m.st.text),
 		m.kv("Author", clean(c.Author), m.st.text),
-		m.kv("Date", c.When.Local().Format(dateFmt), m.st.text),
+		m.kv("Date", m.when(c.When), m.st.text),
 		"",
 		" " + m.st.text.Bold(true).Render(clean(c.Subject)),
 	}
@@ -698,6 +791,8 @@ func (m *Model) detailLines() []string {
 		return m.commitDetail(m.repoCommits()[i])
 	case viewEnvs:
 		return m.envDetail(m.envList()[i])
+	case viewRuns:
+		return m.runDetail(m.runList()[i])
 	case viewTags:
 		t := m.tagList()[i]
 		hint := "Enter marks this tag as the comparison base."
@@ -710,7 +805,7 @@ func (m *Model) detailLines() []string {
 		return []string{
 			m.kv("Tag", clean(t.Name), m.st.accent),
 			m.kv("Commit", t.Commit, m.st.text),
-			m.kv("Date", t.When.Local().Format(dateFmt), m.st.text),
+			m.kv("Date", m.when(t.When), m.st.text),
 			m.kv("Message", clean(t.Subject), m.st.text),
 			"",
 			m.st.muted.Render(" " + hint),
@@ -813,6 +908,10 @@ func (m *Model) health() health {
 		for _, i := range m.scope() {
 			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].deps)
 		}
+	case viewRuns:
+		for _, i := range m.scope() {
+			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].runs)
+		}
 	}
 	if m.cmpOpen() && m.cmp.repo > 0 && m.cmp.repo <= len(m.repos) {
 		addHealth(&h, m.repos[m.cmp.repo-1].cfg.Name, &m.cmp.res)
@@ -842,6 +941,9 @@ func (m *Model) statusLine() string {
 	right := ""
 	if len(h.errs) > 0 && h.loading == 0 { // failed loads only retry on Ctrl+R, so say so
 		right = m.st.key.Render("ctrl+r") + m.st.muted.Render(" retry ")
+	}
+	if m.polling {
+		right += m.st.muted.Render("watching running deploys ")
 	}
 	if m.pendingG {
 		right += m.st.key.Render("g… ")

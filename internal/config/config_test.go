@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,24 @@ func TestLoadMissingFile(t *testing.T) {
 func TestLoadBadJSON(t *testing.T) {
 	if _, err := Load(write(t, "{")); err == nil {
 		t.Fatal("want parse error")
+	}
+}
+
+func TestLoadRejectsTrailingContent(t *testing.T) {
+	for _, body := range []string{`{"repositories":[]}}`, `{"repositories":[]} {"repositories":[]}`} {
+		if _, err := Load(write(t, body)); err == nil {
+			t.Errorf("want an error for %q", body)
+		}
+	}
+	if _, err := Load(write(t, "{\"repositories\":[]}\n\n")); err != nil {
+		t.Fatalf("trailing whitespace is fine: %v", err)
+	}
+}
+
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	_, err := Load(write(t, `{"repos":[{"name":"x","path":"/tmp"}]}`))
+	if err == nil || !strings.Contains(err.Error(), "repos") {
+		t.Fatalf("want an error naming the unknown key, got %v", err)
 	}
 }
 

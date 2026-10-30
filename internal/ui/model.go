@@ -3,6 +3,8 @@ package ui
 
 import (
 	"context"
+	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,11 +27,12 @@ const (
 	viewRepo
 	viewTags
 	viewEnvs
+	viewRuns
 	viewConnections
 	viewCount
 )
 
-var viewNames = [viewCount]string{"Overview", "Activity", "Pull requests", "Repository", "Tags", "Environments", "Connections"}
+var viewNames = [viewCount]string{"Overview", "Activity", "Pull requests", "Repository", "Tags", "Environments", "Deploys", "Connections"}
 
 type paneID int
 
@@ -42,6 +45,7 @@ const (
 const (
 	logDepth   = 100
 	seqTimeout = time.Second
+	pollEvery  = 10 * time.Second
 )
 
 // slot holds one asynchronously loaded value. gen identifies the newest request; older results are dropped.
@@ -60,6 +64,7 @@ type repoState struct {
 	tags    slot[[]gitx.Tag]
 	prs     slot[[]gitx.PR]
 	deps    slot[[]gitx.Deployment]
+	runs    slot[[]gitx.Run]
 }
 
 type dataKind int
@@ -70,6 +75,7 @@ const (
 	kindTags
 	kindPRs
 	kindDeps
+	kindRuns
 	kindCompare
 )
 
@@ -81,6 +87,22 @@ type resultMsg struct {
 }
 
 type seqExpiredMsg struct{ gen int }
+
+type pollMsg struct{ gen int }
+
+type browserMsg struct {
+	what string
+	err  error
+}
+
+// openBrowser opens a web page in the default browser; a variable so tests never launch one.
+var openBrowser = func(url string) error {
+	name := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		name = "open"
+	}
+	return exec.Command(name, url).Run()
+}
 
 // compareState is a commit list between two revisions, opened from Tags (pick a base tag, then a head tag)
 // or from Environments (a deployed commit against origin/HEAD). view says which one owns it.
@@ -118,6 +140,7 @@ type Model struct {
 	width, height  int
 	st             styles
 	dark, themeSet bool
+	utc            bool // show times in UTC instead of the local zone
 
 	view    viewID
 	focus   paneID
@@ -137,6 +160,9 @@ type Model struct {
 	pendingG bool
 	seqGen   int
 	flash    string
+
+	polling bool // a Deploys reload tick is scheduled
+	pollGen int  // bumped on view change so an old tick is ignored
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -179,18 +205,37 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setTheme(msg.IsDark())
 		}
 	case tea.KeyPressMsg:
-		return m, m.handleKey(msg)
+		// Any key can reveal a running deploy (view, repository, filter), so check whether to start watching.
+		return m, tea.Batch(m.handleKey(msg), m.schedulePoll())
 	case tea.PasteMsg:
 		// Only an open text input accepts pasted text; it never reaches workspace shortcuts.
 		if m.filtering {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			m.setFilter(m.input.Value())
-			return m, cmd
+			return m, tea.Batch(cmd, m.schedulePoll())
+		}
+	case browserMsg:
+		if msg.err != nil {
+			m.flash = "Could not open the browser: " + msg.err.Error()
+		} else {
+			m.flash = "Opened " + msg.what + " in your browser."
 		}
 	case seqExpiredMsg:
 		if msg.gen == m.seqGen {
 			m.pendingG = false
+		}
+	case pollMsg:
+		if msg.gen == m.pollGen {
+			m.polling = false
+			// Reload only repositories with a run still going; their results schedule the next tick.
+			var cmds []tea.Cmd
+			for _, i := range m.scope() {
+				if slices.ContainsFunc(m.repos[i].runs.val, gitx.Run.Active) {
+					cmds = append(cmds, m.load(i, kindRuns, true))
+				}
+			}
+			return m, tea.Batch(cmds...)
 		}
 	case resultMsg:
 		return m, m.applyResult(msg)
@@ -288,11 +333,39 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actTheme:
 		m.themeSet = true
 		m.setTheme(!m.dark)
+	case actTime:
+		m.utc = !m.utc
+		m.flash = "Times now shown in " + m.zone() + "."
+	case actBrowse:
+		url, what := m.browseTarget()
+		if !strings.HasPrefix(url, "https://") { // the link comes from GitHub data; never hand other schemes to the OS
+			m.flash = "Not opening a link that is not https."
+			return nil
+		}
+		return func() tea.Msg { return browserMsg{what, openBrowser(url)} }
 	case actQuit:
 		m.cancel()
 		return tea.Quit
 	}
 	return nil
+}
+
+// browseTarget is the web link for the selected row, and how to name it; empty where there is none.
+func (m *Model) browseTarget() (url, what string) {
+	if m.view != viewPRs {
+		return "", ""
+	}
+	n, cur, _ := m.list()
+	if n == 0 {
+		return "", ""
+	}
+	p := m.prList()[*cur]
+	return p.URL, clean(p.Repo) + " #" + strconv.Itoa(p.Number)
+}
+
+func (m *Model) canBrowse() bool {
+	url, _ := m.browseTarget()
+	return url != ""
 }
 
 func (m *Model) resetSequence() {
@@ -306,7 +379,20 @@ func (m *Model) setView(v viewID) tea.Cmd {
 	if m.focus == paneDetail {
 		m.focus = paneMain
 	}
+	m.pollGen++
+	m.polling = false // Update schedules a fresh tick after the key that changed view
 	return m.ensure(false)
+}
+
+// schedulePoll reloads Deploys every pollEvery while a run in view is still going.
+// It stops when none is, when the view changes, or when a reload fails.
+func (m *Model) schedulePoll() tea.Cmd {
+	if m.polling || m.view != viewRuns || !slices.ContainsFunc(m.runList(), gitx.Run.Active) {
+		return nil
+	}
+	m.polling = true
+	gen := m.pollGen
+	return tea.Tick(pollEvery, func(time.Time) tea.Msg { return pollMsg{gen} })
 }
 
 func (m *Model) panes() []paneID {
@@ -357,7 +443,7 @@ func (m *Model) selectRepo(i int) {
 	m.repo = i
 	m.cancelCompare()
 	m.cmp = compareState{res: slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}}
-	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags, viewEnvs} {
+	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags, viewEnvs, viewRuns} {
 		m.cursor[v], m.offset[v] = 0, 0
 	}
 	m.detOff = 0
@@ -535,6 +621,8 @@ func (m *Model) listFor(v viewID) (int, *int, *int) {
 		return len(m.activity()), cur, off
 	case viewPRs:
 		return len(m.prList()), cur, off
+	case viewRuns:
+		return len(m.runList()), cur, off
 	case viewRepo:
 		return len(m.repoCommits()), cur, off
 	case viewTags, viewEnvs:
@@ -620,6 +708,20 @@ func (m *Model) envList() []envRow {
 	return out
 }
 
+// runList is the deploy runs of the selected repositories, most recently started first.
+func (m *Model) runList() []gitx.Run {
+	var out []gitx.Run
+	for _, i := range m.scope() {
+		for _, r := range m.repos[i].runs.val {
+			if match(m.filters[viewRuns], r.Workflow, r.Title, r.Branch, r.Repo, r.Status, r.Conclusion) {
+				out = append(out, r)
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b gitx.Run) int { return b.Started.Compare(a.Started) })
+	return out
+}
+
 func (m *Model) repoCommits() []gitx.Commit {
 	r := m.selected()
 	if r == nil {
@@ -671,6 +773,10 @@ func (m *Model) ensure(force bool) tea.Cmd {
 	case viewEnvs:
 		for _, i := range m.scope() {
 			cmds = append(cmds, m.load(i, kindDeps, force))
+		}
+	case viewRuns:
+		for _, i := range m.scope() {
+			cmds = append(cmds, m.load(i, kindRuns, force))
 		}
 	}
 	if force && m.cmpOpen() {
@@ -724,6 +830,8 @@ func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 		return start(m, &r.prs, force, kind, i, func(ctx context.Context) ([]gitx.PR, error) { return src.PullRequests(ctx, name, dir) })
 	case kindDeps:
 		return start(m, &r.deps, force, kind, i, func(ctx context.Context) ([]gitx.Deployment, error) { return src.Deployments(ctx, name, dir) })
+	case kindRuns:
+		return start(m, &r.runs, force, kind, i, func(ctx context.Context) ([]gitx.Run, error) { return src.DeployRuns(ctx, name, dir) })
 	default:
 		return start(m, &r.tags, force, kind, i, func(ctx context.Context) ([]gitx.Tag, error) { return src.Tags(ctx, name, dir) })
 	}
@@ -756,6 +864,10 @@ func (m *Model) rowKeys(v viewID) []string {
 	case viewEnvs: // the open commit list keeps its own cursor, so this one always tracks environment rows
 		for _, e := range m.envList() {
 			keys = append(keys, e.Repo+"/"+e.Environment)
+		}
+	case viewRuns:
+		for _, r := range m.runList() {
+			keys = append(keys, r.Repo+"/"+strconv.FormatInt(r.ID, 10))
 		}
 	case viewPRs:
 		for _, p := range m.prList() {
@@ -790,6 +902,11 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		case kindDeps:
 			finish(&r.deps, msg)
 			cmd = m.followDeploy(msg.repo)
+		case kindRuns:
+			finish(&r.runs, msg)
+			if msg.err == nil { // a failed reload stops polling until Ctrl+R
+				cmd = m.schedulePoll()
+			}
 		}
 	}
 	if keys := m.rowKeys(m.view); keep != "" {

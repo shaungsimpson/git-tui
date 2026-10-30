@@ -86,7 +86,9 @@ func (m *Model) connections() []connRow {
 		m.githubRow("GitHub (pull requests)", "Pull requests (g p)", "open pull requests with `gh pr list`",
 			func(r *repoState) (bool, error) { return r.prs.loaded, r.prs.err }),
 		m.githubRow("GitHub (deployments)", "Environments (g e)", "GitHub Deployments records with `gh api` (not verified against running services)",
-			func(r *repoState) (bool, error) { return r.deps.loaded, r.deps.err }))
+			func(r *repoState) (bool, error) { return r.deps.loaded, r.deps.err }),
+		m.githubRow("GitHub (deploy runs)", "Deploys (g d)", "deploy workflow runs with `gh run list`",
+			func(r *repoState) (bool, error) { return r.runs.loaded, r.runs.err }))
 
 	return rows
 }
