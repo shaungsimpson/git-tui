@@ -21,7 +21,7 @@ depends = ["build"]
 run = "./bin/git-tui -demo"
 
 [tasks.install-cli]
-description = "Install the git-tui command into ~/go/bin"
+description = "Install the git-tui command into Go's install directory (go env GOBIN, or GOPATH/bin)"
 run = "go install ./cmd/git-tui"
 
 [tasks.screenshots]

@@ -4,9 +4,71 @@ A terminal command centre for your repositories. It is **read-only**: it shows l
 
 ![git-tui in demo mode: the profile header above the Pull requests view, with a PR's picture in the details pane](docs/images/pull-requests.png)
 
+## Get started
+
+You need Git, a GitHub account with access to `acme`, and Go 1.21 or newer, which fetches the Go version the app needs by itself (see [Prerequisites](#prerequisites)).
+
+1. Install the `git-tui` command. The repository is private, so `GOPRIVATE` tells Go to fetch it with your Git credentials instead of asking public services:
+
+   ```sh
+   GOPRIVATE=github.com/acme go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest
+   git-tui -version
+   ```
+
+   The last line should print the newest release, such as `git-tui v0.3.0`. On the way you may see:
+
+   ```text
+   go: downloading github.com/shaungsimpson/git-tui v0.3.0
+   go: github.com/shaungsimpson/git-tui@v0.3.0 requires go >= 1.26.0; switching to go1.26.10
+   go: downloading github.com/shaungsimpson/git-tui v0.3.0
+   ```
+
+   That is normal: your Go is older than the 1.26 the app needs, so Go downloads 1.26 once and uses it. The second `downloading` line is the newer Go fetching the module again.
+
+   If it fails:
+
+   - `404 Not Found` from `sum.golang.org`: Go asked a public service about a private repository. Set `GOPRIVATE` as above, or once with `go env -w GOPRIVATE=github.com/acme`.
+   - `could not read Username for 'https://github.com'`: Git cannot log in to GitHub. Run `gh auth login` and then `gh auth setup-git`, or if you use SSH keys, `git config --global url."git@github.com:".insteadOf "https://github.com/"`.
+   - `command not found: git-tui` after a successful install: add Go's install directory to your `PATH`. `go env GOBIN` prints it; if that is empty, it is `$(go env GOPATH)/bin`, usually `~/go/bin`.
+   - It installs an older version: Go has not seen a release tagged in the last few minutes. Use `@v0.3.0` (or whichever version) instead of `@latest`, or try again shortly.
+
+2. Look around with made-up data. Nothing is read or sent:
+
+   ```sh
+   git-tui -demo
+   ```
+
+   Press `?` for the shortcuts and `Ctrl+C` to quit.
+
+3. List the repositories you work on in `~/.config/git-tui/config.json`:
+
+   ```sh
+   mkdir -p ~/.config/git-tui
+   cat > ~/.config/git-tui/config.json <<'JSON'
+   {
+     "repositories": [
+       { "name": "backend", "path": "~/Code/backend" },
+       { "name": "frontend", "path": "~/Code/frontend" }
+     ]
+   }
+   JSON
+   ```
+
+   Change the paths to where your clones are. [Configuration](#configuration) has the details.
+
+4. For pull requests, environments, deploys and your profile header, log in to the GitHub CLI once with `gh auth login`. Without it, the local Git views still work.
+
+5. Run it:
+
+   ```sh
+   git-tui
+   ```
+
+To update later, run the install command again; `git-tui -version` shows what you have, and so does the Connections view.
+
 ## Prerequisites
 
-- Go 1.26 or newer. The module declares `go 1.26.0`; with the default `GOTOOLCHAIN=auto`, an older local Go downloads it automatically.
+- Go 1.26, or Go 1.21 or newer to fetch it: the module declares `go 1.26.0`, and with the default `GOTOOLCHAIN=auto` Go 1.21 and later download 1.26 automatically.
 - `git` on `PATH`.
 - Optional: the GitHub CLI (`gh`), logged in with `gh auth login`, for the Pull requests, Environments and Deploys views. Each repository's `origin` must point at github.com.
 - A terminal at least 60×16. The sidebar appears from 100 columns and the details pane from 120 columns. When the list is narrower than 100 columns, commit, pull request and deploy rows put their title on a second line.
@@ -14,6 +76,8 @@ A terminal command centre for your repositories. It is **read-only**: it shows l
 No Nerd Font or image support is required.
 
 ## Build and run
+
+This is for working on the code. To only use the app, see [Get started](#get-started).
 
 Tasks run with [mise](https://mise.jdx.dev). On first use in this folder, run `mise trust`.
 
@@ -24,20 +88,14 @@ mise run test               # gofmt check, go vet, tests with the race detector
 mise run demo               # builds and runs with fixture data, no repositories read
 mise run start              # builds and runs with the default config location
 mise run start -- -config examples/config.example.json
-mise run install-cli        # installs the git-tui command into ~/go/bin
+mise run install-cli        # installs the git-tui command into Go's install directory
 ```
 
 `git-tui -version` prints the version it was built from (for example `v0.1.0`, or a pre-release version between releases). The app also shows it in the Connections view and on the `?` help screen.
 
-Without cloning, the same command installs a release: `GOPRIVATE=github.com/acme go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest` (the repository is private, so Go fetches it with your Git credentials).
+After `mise run install-cli`, run `git-tui` from anywhere (Go's install directory must be on your `PATH`: `go env GOBIN`, or `$(go env GOPATH)/bin` if that is empty, usually `~/go/bin`). Run it again after pulling changes. A build from a clone shows a pre-release version such as `v0.3.1-0.20261030…` (Go 1.24 and later record it from the commit), the tag when you are exactly on a release, and `+dirty` on the end when there are uncommitted changes.
 
-If it fails:
-
-- `404 Not Found` from `sum.golang.org`: Go asked a public service about a private repository. Set `GOPRIVATE` as above, or once with `go env -w GOPRIVATE=github.com/acme`.
-- `could not read Username for 'https://github.com'`: Git cannot log in to GitHub. Run `gh auth setup-git`, or if you use SSH keys, `git config --global url."git@github.com:".insteadOf "https://github.com/"`.
-- `command not found: git-tui` after a successful install: add `~/go/bin` to your `PATH`.
-
-After `mise run install-cli`, run `git-tui` from anywhere (`~/go/bin` must be on your `PATH`). Run it again after pulling changes.
+`mise run install-cli` and the [Get started](#get-started) install write the same `git-tui` executable to the same install directory, so each replaces the other: the last one you ran is the one you have. To go back to the release after testing your own build, run the Get started install command again. `go version -m "$(which git-tui)"` tells them apart: a release has an `h1:` checksum on its `mod` line, and a build from a clone has a `vcs.revision` line instead. There is no mise task for the release install on purpose: mise only runs inside a clone, and the release install is for when you do not need one.
 
 ## Configuration
 
