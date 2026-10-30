@@ -27,6 +27,8 @@ mise run install-cli        # installs the git-tui command into ~/go/bin
 
 `git-tui -version` prints the version it was built from (for example `v0.1.0`, or a pre-release version between releases).
 
+Without cloning, the same command installs a release: `GOPRIVATE=github.com/acme go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest` (the repository is private, so Go fetches it with your Git credentials).
+
 After `mise run install-cli`, run `git-tui` from anywhere (`~/go/bin` must be on your `PATH`). Run it again after pulling changes.
 
 ## Configuration

@@ -434,9 +434,6 @@ func (m *Model) do(id actionID) tea.Cmd {
 			return nil
 		}
 		return func() tea.Msg { return browserMsg{what, openBrowser(url)} }
-	case actQuit:
-		m.cancel()
-		return tea.Quit
 	}
 	return nil
 }

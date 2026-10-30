@@ -51,7 +51,7 @@ var actions = []action{
 	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r"), hint: true}, // after help, so help survives a narrow footer
 	{id: actTheme, key: bind("f2", "theme", "f2")},
 	{id: actTime, key: bind("u", "UTC / local times", "u")},
-	{id: actQuit, key: bind("ctrl+c", "quit", "ctrl+c")},
+	{id: actQuit, key: bind("ctrl+c", "quit", "ctrl+c")}, // handled first in handleKey; listed here for help
 }
 
 // goKeys are the second keys of the g sequences.

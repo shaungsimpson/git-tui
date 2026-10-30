@@ -45,7 +45,6 @@ type Repo struct {
 
 // Config is the parsed configuration file.
 type Config struct {
-	Source       string `json:"-"`
 	Repositories []Repo `json:"repositories"`
 }
 
@@ -70,7 +69,7 @@ func Resolve(flag string) string {
 
 // Load reads and validates the file. Per-repository problems are recorded on each Repo, not returned.
 func Load(path string) (Config, error) {
-	cfg := Config{Source: path}
+	var cfg Config
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, ErrNotFound
@@ -86,7 +85,6 @@ func Load(path string) (Config, error) {
 	if _, err := dec.Token(); err != io.EOF { // a decoder stops after one value; anything after it is a mistake
 		return cfg, fmt.Errorf("parse %s: unexpected content after the configuration", path)
 	}
-	cfg.Source = path
 	for i := range cfg.Repositories {
 		validate(&cfg.Repositories[i])
 	}
