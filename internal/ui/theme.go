@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"hash/fnv"
 	"image/color"
 	"strings"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -13,6 +15,7 @@ type styles struct {
 	text, muted, accent, title, titleFocus lipgloss.Style
 	selected, marker, sep, ok, warn, bad   lipgloss.Style
 	badge, tab, tabActive, key             lipgloss.Style
+	authors                                []lipgloss.Style // one per person, picked by authorStyle
 }
 
 func newStyles(dark bool) styles {
@@ -47,6 +50,15 @@ func newStyles(dark bool) styles {
 		tab:        s().Foreground(muted),
 		tabActive:  s().Foreground(accent).Bold(true).Underline(true),
 		key:        s().Foreground(accent),
+		// Hues apart from the status colours (red, green, amber) and the accent, each readable on its theme.
+		authors: []lipgloss.Style{
+			s().Foreground(c("#3b62c4", "#7aa2f7")), // blue
+			s().Foreground(c("#7646c2", "#b394f0")), // violet
+			s().Foreground(c("#a8327f", "#e08ac2")), // magenta
+			s().Foreground(c("#17758f", "#6cc7dc")), // cyan
+			s().Foreground(c("#8a5432", "#d4a27c")), // brown
+			s().Foreground(c("#4f5f86", "#a3b4d9")), // slate
+		},
 	}
 }
 
@@ -62,4 +74,38 @@ func clean(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// authorStyle colours a person's name the same way everywhere: the viewer in the accent colour, bots muted,
+// and everyone else by a hash of the name with case and punctuation dropped, so "Jane Doe" and
+// "jane.doe" match. A GitHub login and a git name for the same person still differ, except for the viewer.
+// login says name is a GitHub login (a PR author): the viewer then matches only their own login exactly,
+// since anna-lee and annalee are different accounts.
+func (m *Model) authorStyle(name string, login bool) lipgloss.Style {
+	key := nameKey(name)
+	v := m.me.val
+	lower := strings.ToLower(name)
+	switch {
+	case key == "":
+		return m.st.muted
+	case strings.HasSuffix(lower, "[bot]") || strings.HasPrefix(lower, "app/"): // gh reports GitHub Apps as app/<name>
+		return m.st.muted
+	case login && v.Login != "" && strings.EqualFold(name, v.Login):
+		return m.st.accent
+	case !login && (key == nameKey(v.Login) || key == nameKey(v.Name) || key == nameKey(v.GitName)):
+		return m.st.accent
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key)) // a hash never fails to write
+	return m.st.authors[h.Sum32()%uint32(len(m.st.authors))]
+}
+
+// nameKey is a name with only its lowercase letters and digits.
+func nameKey(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, name)
 }

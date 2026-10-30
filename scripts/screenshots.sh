@@ -40,12 +40,22 @@ launch() {
   sleep 2 # first frame, demo data and the avatar
 }
 
-# keys types each argument into the window: a character, or f2 / ctrl+c.
+# front prints the process ID of the app in front, which receives System Events keystrokes.
+front() {
+  osascript -e 'tell application "System Events" to unix id of first process whose frontmost is true'
+}
+
+# keys types each argument into the window: a character, or f2. Keystrokes go to whatever app is in front,
+# so it brings the screenshot window forward first and stops rather than type into anything else.
 keys() {
   for k in "$@"; do
+    osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $pid) to true"
+    if [[ $(front) != "$pid" ]]; then
+      echo "The screenshot window is not in front, so no keys were sent. Leave the keyboard and mouse alone and run it again." >&2
+      exit 1
+    fi
     case $k in
       f2) osascript -e 'tell application "System Events" to key code 120' ;;
-      ctrl+c) osascript -e 'tell application "System Events" to keystroke "c" using control down' ;;
       *) osascript -e "tell application \"System Events\" to keystroke \"$k\"" ;;
     esac
     sleep 0.3
@@ -60,10 +70,10 @@ shot() {
   echo "$out/$1.png"
 }
 
+# finish closes the window by ending its process; no keystroke, so nothing can reach another app.
 finish() {
-  keys ctrl+c
-  sleep 1
   cleanup
+  sleep 1
   pid=""
 }
 

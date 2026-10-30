@@ -1002,6 +1002,13 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	}
 
 	press(m, "g", "p")
+	colours := map[any]bool{}
+	for _, p := range m.prList() {
+		colours[m.authorStyle(p.Author, true).GetForeground()] = true
+	}
+	if len(colours) < 3 {
+		t.Fatalf("demo authors should show several author colours, got %d", len(colours))
+	}
 	if !strings.ContainsRune(strings.Join(m.detailLines(), ""), kitty.Placeholder) {
 		t.Fatal("demo PRs should draw their pictures")
 	}
@@ -1024,5 +1031,41 @@ func TestVersionShown(t *testing.T) {
 	press(m, "?")
 	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui v9.9.9") {
 		t.Fatal("help should show the version")
+	}
+}
+
+func TestAuthorColours(t *testing.T) {
+	m := New(demoOpts())
+	fg := func(name string) any { return m.authorStyle(name, false).GetForeground() }
+	login := func(name string) any { return m.authorStyle(name, true).GetForeground() }
+	if fg("Jane Doe") != fg("jane.doe") || fg("Bob") != fg("b.o.b") {
+		t.Fatal("case and punctuation do not change a person's colour")
+	}
+	if fg("renovate[bot]") != m.st.muted.GetForeground() || fg("") != m.st.muted.GetForeground() ||
+		login("app/dependabot") != m.st.muted.GetForeground() {
+		t.Fatal("bots (including GitHub Apps, which gh reports as app/<name>) and empty names are muted")
+	}
+	m.me.val = gitx.Viewer{Login: "janedoe", Name: "Jane DOe", GitName: "Jane Doe"}
+	for _, you := range []string{"janedoe", "Jane DOe", "Jane Doe"} {
+		if fg(you) != m.st.accent.GetForeground() {
+			t.Fatalf("%q is the viewer and gets the accent colour", you)
+		}
+	}
+	if login("JaneDoe") != m.st.accent.GetForeground() {
+		t.Fatal("the viewer's own login matches whatever its case")
+	}
+	m.me.val.Login = "anna-lee"
+	if login("annalee") == m.st.accent.GetForeground() {
+		t.Fatal("a PR login matches the viewer's login exactly: annalee is someone else's account")
+	}
+	seen := map[any]bool{}
+	for _, name := range []string{"Bob", "Chuck", "Dave", "bob", "chuck", "dave"} {
+		seen[fg(name)] = true
+		if fg(name) == m.st.muted.GetForeground() || fg(name) == m.st.accent.GetForeground() {
+			t.Fatalf("%q should get a palette colour", name)
+		}
+	}
+	if len(seen) < 3 {
+		t.Fatalf("the demo's people should spread across the palette, got %d colours", len(seen))
 	}
 }

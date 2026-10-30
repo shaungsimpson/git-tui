@@ -362,7 +362,7 @@ func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 	return append(segs,
 		seg{short(c.Hash) + "  ", m.st.muted}, brk,
 		seg{clean(c.Subject) + "  ", m.st.text},
-		seg{clean(c.Author), m.st.muted})
+		seg{clean(c.Author), m.authorStyle(c.Author, false)})
 }
 
 // tagBase is the base tag chosen in Tags, or "" when the comparison state belongs to another view.
@@ -519,7 +519,7 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	}
 	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.muted}, seg{pad(review, 8), rst})
 	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted}, brk)
-	return append(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.st.muted})
+	return append(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)})
 }
 
 func (m *Model) prDetail(p gitx.PR) []string {
@@ -527,7 +527,7 @@ func (m *Model) prDetail(p gitx.PR) []string {
 	lines := []string{
 		" " + m.st.text.Bold(true).Render(clean(p.Title)),
 		m.kv("PR", "#"+strconv.Itoa(p.Number)+" in "+clean(p.Repo), m.st.accent),
-		m.kv("Author", clean(p.Author), m.st.text),
+		m.kv("Author", clean(p.Author), m.authorStyle(p.Author, true)),
 		m.kv("Branch", clean(p.Branch), m.st.text),
 		m.kv("Review", review, rst),
 		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
@@ -862,7 +862,7 @@ func (m *Model) commitDetail(c gitx.Commit) []string {
 	lines := []string{
 		m.kv("Commit", c.Hash, m.st.accent),
 		m.kv("Repo", clean(c.Repo), m.st.text),
-		m.kv("Author", clean(c.Author), m.st.text),
+		m.kv("Author", clean(c.Author), m.authorStyle(c.Author, false)),
 		m.kv("Date", m.when(c.When), m.st.text),
 		"",
 		" " + m.st.text.Bold(true).Render(clean(c.Subject)),
