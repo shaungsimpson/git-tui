@@ -50,6 +50,12 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	if err != nil {
 		return nil, err
 	}
+	// GitHub search counts team requests too; a request is cleared once the viewer reviews.
+	// Newest first, like the list below, so every listed PR that is requested falls inside the limit.
+	mine := background(func() (string, error) {
+		return command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
+			"--search", "review-requested:@me sort:created-desc", "--json", "number")
+	})
 	// shortcut: only the 100 most recently created open PRs per repository; page if a repository has more.
 	out, err := command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
 		"--json", "number,title,author,headRefName,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,body,files")
@@ -60,11 +66,8 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	// GitHub search counts team requests too; a request is cleared once the viewer reviews.
-	// Newest first, like the list above, so every listed PR that is requested falls inside the limit.
 	// shortcut: a failed request search only hides the stars until the next refresh; show the error if that confuses.
-	if mine, err := command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
-		"--search", "review-requested:@me sort:created-desc", "--json", "number"); err == nil {
+	if mine, err := mine(); err == nil {
 		_ = MarkRequested(prs, mine)
 	}
 	return prs, nil

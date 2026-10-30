@@ -2,12 +2,14 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseStatus(t *testing.T) {
@@ -199,5 +201,24 @@ func TestDemoIsDeterministic(t *testing.T) {
 	c, _ := Demo{}.Compare(context.Background(), "backend", "", "v1.7.0", "v1.9.0")
 	if len(c) != 8 {
 		t.Fatalf("compare want 8, got %d", len(c))
+	}
+}
+
+func TestBackgroundOverlaps(t *testing.T) {
+	started := make(chan struct{})
+	// a can only finish once b has started, so this passes only if the two run at the same time.
+	a := background(func() (string, error) {
+		select {
+		case <-started:
+			return "a", nil
+		case <-time.After(5 * time.Second):
+			return "", errors.New("b never started while a was running")
+		}
+	})
+	b := background(func() (string, error) { close(started); return "b", nil })
+	x, err := a()
+	y, _ := b()
+	if err != nil || x+y != "ab" {
+		t.Fatalf("got %q, %v", x+y, err)
 	}
 }

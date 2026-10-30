@@ -79,6 +79,23 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 	return command(ctx, dir, timeout, "git", args...)
 }
 
+// background starts f now and returns a function that waits for its result, so independent calls overlap.
+func background(f func() (string, error)) func() (string, error) {
+	type result struct {
+		out string
+		err error
+	}
+	ch := make(chan result, 1) // buffered: the goroutine never blocks if the caller returns early
+	go func() {
+		out, err := f()
+		ch <- result{out, err}
+	}()
+	return func() (string, error) {
+		r := <-ch
+		return r.out, r.err
+	}
+}
+
 // command runs a read-only tool in dir and returns stdout, or stderr as the error.
 func command(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
