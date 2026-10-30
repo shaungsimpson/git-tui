@@ -90,6 +90,12 @@ func (m *Model) connections() []connRow {
 		m.githubRow("GitHub (deploy runs)", "Deploys (g d)", "deploy workflow runs with `gh run list`",
 			func(r *repoState) (bool, error) { return r.runs.loaded, r.runs.err }))
 
+	rows = append(rows, connRow{"·", "git-tui", m.version(), levelOK, []string{
+		"Version: " + m.version(),
+		"Executable: " + clean(firstOf(m.opts.Executable, "unknown")),
+		"Update: GOPRIVATE=github.com/acme go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest",
+		"From a clone: mise run install-cli",
+	}})
 	return rows
 }
 

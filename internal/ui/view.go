@@ -31,7 +31,7 @@ type layout struct {
 }
 
 func (m *Model) layout() layout {
-	l := layout{bodyH: m.height - 4} // header, separator, status, footer
+	l := layout{bodyH: m.height - 4 - m.profileRows()} // header, separator, status, footer, profile
 	if m.width < minW || m.height < minH {
 		l.small = true
 		return l
@@ -95,7 +95,11 @@ func (m *Model) render() string {
 		msg := fmt.Sprintf("Terminal too small (%d×%d).\nResize to at least %d×%d.", m.width, m.height, minW, minH)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.st.muted.Render(msg))
 	}
-	rows := []string{m.header(), m.st.sep.Render(strings.Repeat("─", m.width))}
+	var rows []string
+	if p := m.profileLines(); p != nil {
+		rows = append(rows, box(p, m.width, len(p)))
+	}
+	rows = append(rows, m.header(), m.st.sep.Render(strings.Repeat("─", m.width)))
 	if l.bar {
 		rows = append(rows, m.repoBar())
 	}
@@ -956,7 +960,7 @@ func (m *Model) detailPane(w, h int) []string {
 // or one column would not fit. If two still do not fit, the blank separator goes. The footer says how to
 // close help, so it needs no line here.
 func (m *Model) helpLines() []string {
-	lines := []string{m.st.titleFocus.Render(" Keyboard shortcuts · " + viewNames[m.view])}
+	lines := []string{fit(m.st.titleFocus.Render(" Keyboard shortcuts · "+viewNames[m.view]), m.st.muted.Render("git-tui "+m.version()+" "), m.width)}
 	row, label := "", pad("g then", 10)
 	for _, g := range goKeys { // wrap the jumps rather than cut them off
 		item := m.st.key.Render(g.key) + " " + m.st.text.Render(viewNames[g.view])
@@ -1132,5 +1136,7 @@ func (m *Model) footer() string {
 			hints = append(hints, m.st.key.Render(h.Key)+" "+m.st.muted.Render(h.Desc))
 		}
 	}
-	return ansi.Truncate(" "+strings.Join(hints, "  "), m.width, "…")
+	// The profile toggle stays visible on narrow footers, naming the current mode; the hints give way first.
+	right := m.st.key.Render("b") + m.st.muted.Render(" profile: "+profileNames[m.profile]+" ")
+	return fit(" "+strings.Join(hints, "  "), right, m.width)
 }

@@ -19,6 +19,7 @@ const (
 	actHelp
 	actTheme
 	actTime
+	actProfile
 	actQuit
 )
 
@@ -48,7 +49,8 @@ var actions = []action{
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
 	{id: actGo, key: bind("g", "go to view…", "g")},
 	{id: actHelp, key: bind("?", "help", "?"), hint: true},
-	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r"), hint: true}, // after help, so help survives a narrow footer
+	{id: actProfile, key: bind("b", "profile header: full, ASCII, text, off", "b")}, // pinned right in the footer
+	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r"), hint: true},          // after help, so help survives a narrow footer
 	{id: actTheme, key: bind("f2", "theme", "f2")},
 	{id: actTime, key: bind("u", "UTC / local times", "u")},
 	{id: actQuit, key: bind("ctrl+c", "quit", "ctrl+c")}, // handled first in handleKey; listed here for help

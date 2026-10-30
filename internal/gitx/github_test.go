@@ -74,3 +74,13 @@ func TestMarkRequested(t *testing.T) {
 		t.Fatal("non-JSON output must be an error")
 	}
 }
+
+func TestParseViewer(t *testing.T) {
+	v, err := ParseViewer(`{"login":"octo","name":"Octo Cat","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4","followers":3}`)
+	if err != nil || v.Login != "octo" || v.Name != "Octo Cat" || v.Followers != 3 || v.AvatarURL == "" {
+		t.Fatalf("got %+v, %v", v, err)
+	}
+	if _, err := ParseViewer(`{"message":"Bad credentials"}`); err == nil {
+		t.Fatal("a response without a login is an error")
+	}
+}

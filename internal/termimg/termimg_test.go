@@ -130,3 +130,18 @@ func TestSupported(t *testing.T) {
 		t.Fatal("kitty draws placeholders")
 	}
 }
+
+func TestAvatarRedirectsStayOnHost(t *testing.T) {
+	req := func(raw string) *http.Request { r, _ := http.NewRequest(http.MethodGet, raw, nil); return r }
+	avatar := []*http.Request{req("https://avatars.githubusercontent.com/u/1?s=128")}
+	if checkRedirect(req("https://evil.example/x.png"), avatar) == nil {
+		t.Fatal("an avatar must not redirect to another host")
+	}
+	if err := checkRedirect(req("https://avatars.githubusercontent.com/u/1?s=128&v=4"), avatar); err != nil {
+		t.Fatalf("a same-host avatar redirect is fine: %v", err)
+	}
+	attachment := []*http.Request{req("https://github.com/user-attachments/assets/a")}
+	if err := checkRedirect(req("https://github-production-user-asset-6210df.s3.amazonaws.com/a"), attachment); err != nil {
+		t.Fatalf("attachments still follow GitHub to its storage: %v", err)
+	}
+}

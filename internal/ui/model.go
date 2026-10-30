@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
@@ -79,6 +80,7 @@ const (
 	kindRuns
 	kindDiff
 	kindCompare
+	kindViewer
 )
 
 type resultMsg struct {
@@ -146,14 +148,13 @@ type picMsg struct {
 // picBase keeps this app's terminal image IDs ("gt", for git-tui) apart from other programs' in the same terminal.
 const picBase = 0x677400
 
-// fetchPic downloads and encodes one picture; a variable so tests never touch the network.
-var fetchPic = func(ctx context.Context, url string, id int) (termimg.Picture, error) {
-	token, _ := gitx.GHToken(ctx) // without it, attachments in private repositories are a 404
-	data, err := termimg.Download(ctx, url, token)
+// fetchPic loads one picture from the source and encodes it; a variable so tests never touch the network.
+var fetchPic = func(ctx context.Context, src gitx.Source, url string, id int) (termimg.Picture, error) {
+	img, err := src.Image(ctx, url)
 	if err != nil {
 		return termimg.Picture{}, err
 	}
-	return termimg.Encode(data, id)
+	return termimg.EncodeImage(img, id)
 }
 
 // envRow is one environment of one repository; repo indexes Model.repos.
@@ -170,6 +171,11 @@ type Options struct {
 	ConfigErr  error
 	Demo       bool
 	Images     bool // the terminal draws Kitty graphics placeholders
+	Profile    Profile
+	UTC        bool   // show times in UTC
+	StatePath  string // where toggles are remembered; empty in demo mode and tests
+	Version    string // as -version prints it
+	Executable string // the running binary
 	Tools      map[string]string
 }
 
@@ -194,6 +200,11 @@ type Model struct {
 	pics    map[string]*picState // by picture link
 	picIDs  int
 
+	profile Profile
+	me      slot[gitx.Viewer]
+	avatar  avatarState
+	colours colorprofile.Profile // what the terminal reported; colour avatars need 256 or more
+
 	filters   [viewCount]string
 	input     textinput.Model
 	filtering bool
@@ -212,7 +223,7 @@ type Model struct {
 }
 
 func New(o Options) *Model {
-	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}}
+	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC}
 	for _, r := range o.Repos {
 		m.repos = append(m.repos, repoState{cfg: r})
 	}
@@ -244,6 +255,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clampAll()
 		return m, m.ensurePics() // pictures are encoded for the pane width
+	case tea.ColorProfileMsg:
+		m.colours = msg.Profile
+	case avatarMsg:
+		return m, m.applyAvatar(msg)
 	case tea.BackgroundColorMsg:
 		if !m.themeSet {
 			m.setTheme(msg.IsDark())
@@ -373,6 +388,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// savePrefs remembers one toggle for the next run, leaving the others as saved: a -profile flag lasts one run
+// and must not be saved by pressing u. The file is tiny, so it is written here, in order.
+func (m *Model) savePrefs(change func(*config.State)) {
+	if m.opts.StatePath == "" {
+		return
+	}
+	st, _ := config.LoadState(m.opts.StatePath) // an unreadable file is replaced
+	change(&st)
+	if err := config.SaveState(m.opts.StatePath, st); err != nil {
+		m.flash = "Could not save your preferences: " + clean(err.Error())
+	}
+}
+
 func (m *Model) do(id actionID) tea.Cmd {
 	switch id {
 	case actUp:
@@ -406,9 +434,14 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actTheme:
 		m.themeSet = true
 		m.setTheme(!m.dark)
+	case actProfile:
+		cmd := m.cycleProfile()
+		m.savePrefs(func(s *config.State) { s.Profile = profileNames[m.profile] })
+		return cmd
 	case actTime:
 		m.utc = !m.utc
 		m.flash = "Times now shown in " + m.zone() + "."
+		m.savePrefs(func(s *config.State) { s.UTC = m.utc })
 	case actDiff:
 		src := m.opts.Source
 		if p, ok := m.selectedPR(); ok {
@@ -516,9 +549,9 @@ func (m *Model) ensurePics() tea.Cmd {
 			}
 			m.pics[url] = &picState{loading: true}
 			m.picIDs++
-			id, ctx := picBase+m.picIDs, m.ctx
+			id, ctx, src := picBase+m.picIDs, m.ctx, m.opts.Source
 			cmds = append(cmds, func() tea.Msg {
-				pic, err := fetchPic(ctx, url, id)
+				pic, err := fetchPic(ctx, src, url, id)
 				return picMsg{url, pic, err}
 			})
 		}
@@ -532,6 +565,9 @@ func (m *Model) ensurePics() tea.Cmd {
 // freePics deletes every picture this app sent, so the terminal does not keep them after exit.
 func (m *Model) freePics() tea.Cmd {
 	var b strings.Builder
+	if m.avatar.pic.ID != 0 {
+		b.WriteString(termimg.Delete(m.avatar.pic.ID))
+	}
 	for _, st := range m.pics {
 		if st.pic.ID != 0 {
 			b.WriteString(termimg.Delete(st.pic.ID))
@@ -987,6 +1023,7 @@ func (m *Model) ensure(force bool) tea.Cmd {
 	if force && m.cmpOpen() {
 		cmds = append(cmds, m.loadCompare())
 	}
+	cmds = append(cmds, m.profileLoads(force)...) // after the view's, which it never cancels
 	return tea.Batch(cmds...)
 }
 
@@ -1093,6 +1130,9 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		if m.diff.open && msg.repo == m.diff.repo {
 			finish(&m.diff.res, msg)
 		}
+	} else if msg.kind == kindViewer {
+		finish(&m.me, msg)
+		cmd = m.ensureAvatar()
 	} else if msg.kind == kindCompare {
 		if msg.repo == m.cmp.repo {
 			finish(&m.cmp.res, msg)

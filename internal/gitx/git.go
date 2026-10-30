@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"os"
 	"os/exec"
 	"strconv"
@@ -61,6 +62,8 @@ type Source interface {
 	DeployRuns(ctx context.Context, repo, dir string) ([]Run, error)
 	Diff(ctx context.Context, repo, dir string) ([]string, error)
 	PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error)
+	Viewer(ctx context.Context, dir string) (Viewer, error)
+	Image(ctx context.Context, url string) (image.Image, error) // a picture already checked with termimg.Allowed
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.

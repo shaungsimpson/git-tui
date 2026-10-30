@@ -94,3 +94,27 @@ func TestResolveOrder(t *testing.T) {
 		t.Fatal("xdg fallback")
 	}
 }
+
+func TestStateRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "git-tui", "state.json")
+	if s, err := LoadState(p); err != nil || s != (State{}) {
+		t.Fatalf("a missing file is the zero state: %+v, %v", s, err)
+	}
+	want := State{UTC: true, Profile: "ascii"}
+	if err := SaveState(p, want); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := LoadState(p); err != nil || got != want {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(p)); len(entries) != 1 {
+		t.Fatalf("temporary files left behind: %v", entries)
+	}
+}
+
+func TestStatePath(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/x/state")
+	if got := StatePath(); got != "/x/state/git-tui/state.json" {
+		t.Fatal(got)
+	}
+}

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shaungsimpson/git-tui/internal/termimg"
 )
 
 // CheckState is the combined result of a pull request's checks.
@@ -181,4 +184,15 @@ func ParsePRs(repo, out string) ([]PR, error) {
 		})
 	}
 	return prs, nil
+}
+
+// Image downloads a GitHub-hosted picture. The gh login token goes to github.com only, where attachments in
+// private repositories need it.
+func (Git) Image(ctx context.Context, raw string) (image.Image, error) {
+	token, _ := GHToken(ctx) // without it, attachments in private repositories are a 404
+	data, err := termimg.Download(ctx, raw, token)
+	if err != nil {
+		return nil, err
+	}
+	return termimg.Decode(data)
 }

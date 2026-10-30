@@ -61,7 +61,7 @@ func Links(line string) []Link {
 	return links
 }
 
-// Allowed reports whether raw is a GitHub-hosted picture. No other host is ever contacted, so a PR body
+// Allowed reports whether raw is a GitHub-hosted picture or avatar. No other host is ever contacted, so a PR body
 // cannot make the app fetch an arbitrary or internal address.
 func Allowed(raw string) bool {
 	u, err := url.Parse(raw)
@@ -71,7 +71,8 @@ func Allowed(raw string) bool {
 	switch u.Host {
 	case "github.com":
 		return strings.HasPrefix(u.Path, "/user-attachments/assets/")
-	case "user-images.githubusercontent.com", "private-user-images.githubusercontent.com", "raw.githubusercontent.com":
+	case "user-images.githubusercontent.com", "private-user-images.githubusercontent.com", "raw.githubusercontent.com",
+		"avatars.githubusercontent.com":
 		return true
 	}
 	return false
@@ -80,16 +81,24 @@ func Allowed(raw string) bool {
 // githubHost is the only host a login token is sent to; a variable so tests can use a local server.
 var githubHost = "github.com"
 
-// client follows GitHub's redirects to signed storage links, but only over https.
+// client follows GitHub's redirects to signed storage links, but only over https. Avatars never need to
+// leave their host, so their redirects must stay on it.
 var client = &http.Client{
-	Timeout: 20 * time.Second,
-	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if req.URL.Scheme != "https" || len(via) >= 5 {
-			return errors.New("redirect refused")
-		}
-		return nil
-	},
+	Timeout:       20 * time.Second,
+	CheckRedirect: checkRedirect,
 }
+
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if req.URL.Scheme != "https" || len(via) >= 5 {
+		return errors.New("redirect refused")
+	}
+	if via[0].URL.Host == avatarHost && req.URL.Host != avatarHost {
+		return errors.New("avatar redirect to another host refused")
+	}
+	return nil
+}
+
+const avatarHost = "avatars.githubusercontent.com"
 
 // Download fetches a GitHub-hosted picture of at most maxBytes. token, if set, is sent only to github.com:
 // private repositories' attachments need it. The client drops it when GitHub redirects to its storage host.
@@ -133,27 +142,38 @@ type Picture struct {
 	Transmit          string
 }
 
-// Encode decodes PNG, JPEG or GIF data into a picture with the given terminal image ID.
-func Encode(data []byte, id int) (Picture, error) {
+// Decode reads PNG, JPEG or GIF data, refusing images too large to hold in memory.
+func Decode(data []byte) (image.Image, error) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return Picture{}, errors.New("not a PNG, JPEG or GIF image")
+		return nil, errors.New("not a PNG, JPEG or GIF image")
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxPixels {
-		return Picture{}, errors.New("image dimensions too large")
+		return nil, errors.New("image dimensions too large")
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
+	return img, err
+}
+
+// Encode decodes PNG, JPEG or GIF data into a picture with the given terminal image ID.
+func Encode(data []byte, id int) (Picture, error) {
+	img, err := Decode(data)
 	if err != nil {
 		return Picture{}, err
 	}
+	return EncodeImage(img, id)
+}
+
+// EncodeImage is Encode for an image that is already decoded.
+func EncodeImage(img image.Image, id int) (Picture, error) {
 	var b bytes.Buffer
-	err = kitty.EncodeGraphics(&b, img, &kitty.Options{
+	err := kitty.EncodeGraphics(&b, img, &kitty.Options{
 		Action: kitty.Transmit, Format: kitty.PNG, Transmission: kitty.Direct, ID: id, Quiet: 2, Chunk: true,
 	})
 	if err != nil {
 		return Picture{}, err
 	}
-	return Picture{ID: id, Width: cfg.Width, Height: cfg.Height, Transmit: b.String()}, nil
+	return Picture{ID: id, Width: img.Bounds().Dx(), Height: img.Bounds().Dy(), Transmit: b.String()}, nil
 }
 
 // Rows is how many cell rows the picture takes when drawn cols cells wide (cells are about twice as tall as wide).

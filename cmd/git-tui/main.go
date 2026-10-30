@@ -20,20 +20,41 @@ func main() {
 	cfgFlag := flag.String("config", "", "path to config JSON (default $GIT_TUI_CONFIG or ~/.config/git-tui/config.json)")
 	demo := flag.Bool("demo", false, "use built-in fixture data instead of real repositories")
 	version := flag.Bool("version", false, "print the version and exit")
+	profileFlag := flag.String("profile", "full", "profile header: full, ascii, text or off (b cycles them)")
 	flag.Parse()
 
+	// Go stamps the version from the git tag at build time, e.g. v0.1.0, or a pseudo-version between tags.
+	v := "(devel)"
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		v = info.Main.Version
+	}
 	if *version {
-		// Go stamps the version from the git tag at build time, e.g. v0.1.0, or a pseudo-version between tags.
-		v := "(devel)"
-		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
-			v = info.Main.Version
-		}
 		fmt.Println("git-tui", v)
 		return
 	}
 
-	// Demo mode never touches the network, so PR pictures stay as text there.
-	opts := ui.Options{Demo: *demo, Images: !*demo && termimg.Supported(os.Getenv), Tools: map[string]string{}}
+	// Toggles are remembered between runs, except in demo mode; a -profile flag wins over the saved header.
+	var state config.State
+	statePath := ""
+	if !*demo {
+		statePath = config.StatePath()
+		state, _ = config.LoadState(statePath) // an unreadable file only loses the preferences
+	}
+	profile, ok := ui.ParseProfile(*profileFlag)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "git-tui: -profile must be full, ascii, text or off")
+		os.Exit(2)
+	}
+	flagged := false
+	flag.Visit(func(f *flag.Flag) { flagged = flagged || f.Name == "profile" })
+	if saved, ok := ui.ParseProfile(state.Profile); ok && !flagged {
+		profile = saved
+	}
+
+	// Demo mode never touches the network: its avatar and PR pictures are drawn from fixtures.
+	opts := ui.Options{Demo: *demo, Images: termimg.Supported(os.Getenv), Profile: profile, UTC: state.UTC,
+		StatePath: statePath, Version: v, Tools: map[string]string{}}
+	opts.Executable, _ = os.Executable()
 	for _, t := range []string{"git", "gh"} {
 		if p, err := exec.LookPath(t); err == nil {
 			opts.Tools[t] = p

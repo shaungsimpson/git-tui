@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"regexp"
 	"slices"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 
@@ -609,7 +611,7 @@ func TestPullRequestBodyFilesAndDiff(t *testing.T) {
 func TestPullRequestPictures(t *testing.T) {
 	var fetched []string
 	real := fetchPic
-	fetchPic = func(_ context.Context, url string, id int) (termimg.Picture, error) {
+	fetchPic = func(_ context.Context, _ gitx.Source, url string, id int) (termimg.Picture, error) {
 		fetched = append(fetched, url)
 		return termimg.Picture{ID: id, Width: 400, Height: 200, Transmit: "\x1b_Ga=t,q=2\x1b\\"}, nil
 	}
@@ -665,7 +667,7 @@ func TestPullRequestPictures(t *testing.T) {
 
 func TestPullRequestPictureError(t *testing.T) {
 	real := fetchPic
-	fetchPic = func(context.Context, string, int) (termimg.Picture, error) {
+	fetchPic = func(context.Context, gitx.Source, string, int) (termimg.Picture, error) {
 		return termimg.Picture{}, errors.New("HTTP 404")
 	}
 	t.Cleanup(func() { fetchPic = real })
@@ -843,5 +845,184 @@ func TestStackedRows(t *testing.T) {
 	}
 	if !star(prs[i]) || star(gitx.PR{Repo: "x", Number: 1}) {
 		t.Fatal("only PRs waiting on the viewer get a star")
+	}
+}
+
+func TestProfileHeader(t *testing.T) {
+	o := demoOpts()
+	o.Profile = ProfileFull
+	m := setup(t, o, 120, 30)
+	out := ansi.Strip(m.render())
+	for _, want := range []string{"Alice", "@alice", "Acme · Remote", "review request", "128 followers"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("full header lacks %q:\n%s", want, out)
+		}
+	}
+	lines := strings.Split(m.render(), "\n")
+	if len(lines) != 30 || !strings.Contains(ansi.Strip(lines[bannerRows]), "Overview") {
+		t.Fatalf("the tabs should sit under the banner in a 30-line frame (%d lines)", len(lines))
+	}
+
+	press(m, "b") // ASCII
+	for i, l := range strings.Split(ansi.Strip(m.render()), "\n")[:bannerRows] {
+		for _, r := range l {
+			if r > 0x7e {
+				t.Fatalf("ASCII header line %d has %q: %s", i, r, l)
+			}
+		}
+	}
+	press(m, "b") // text
+	if m.profileRows() != 1 || !strings.Contains(ansi.Strip(m.render()), "@alice | ") {
+		t.Fatal("text mode is one line")
+	}
+	press(m, "b") // off
+	if m.profileRows() != 0 || strings.Contains(ansi.Strip(m.render()), "@alice") {
+		t.Fatal("off hides the header")
+	}
+}
+
+func TestProfileGivesWayOnShortWindows(t *testing.T) {
+	o := demoOpts()
+	o.Profile = ProfileFull
+	m := setup(t, o, 60, 16)
+	if m.profileShown() != ProfileText {
+		t.Fatalf("a 16-line window shows %v, want the one-line header", profileNames[m.profileShown()])
+	}
+	press(m, "g", "p")
+	if f := ansi.Strip(m.footer()); !strings.HasSuffix(strings.TrimSpace(f), "b profile: full") {
+		t.Fatalf("the profile toggle stays visible on a narrow footer: %q", f)
+	}
+	if lines := strings.Split(m.render(), "\n"); len(lines) != 16 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 14})
+	if m.profileShown() != ProfileOff {
+		t.Fatal("a window too short for the panes drops the header")
+	}
+}
+
+func TestProfileStatsCountTheViewer(t *testing.T) {
+	m := New(demoOpts())
+	now := time.Now()
+	m.me.val = gitx.Viewer{Login: "me", GitName: "Me"}
+	m.repos[0].prs.val = []gitx.PR{
+		{Author: "me", Checks: gitx.ChecksFailing, Review: "CHANGES_REQUESTED"},
+		{Author: "other", ForMe: true},
+		{Author: "other"},
+	}
+	m.repos[1].log.val = []gitx.Commit{{Author: "Me", When: now.Add(-time.Hour)}, {Author: "Me", When: now.AddDate(0, 0, -8)}, {Author: "You", When: now}}
+	m.repos[2].summary = slot[gitx.Summary]{loaded: true, val: gitx.Summary{Unstaged: 1}}
+	got := m.profileStats(now)
+	want := profileStats{requested: 1, mine: 1, failing: 1, changes: 1, commits: 1, dirty: 1}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestProfileAvatarFallbacks(t *testing.T) {
+	real := fetchAvatar
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	fetchAvatar = func(context.Context, gitx.Source, string) (image.Image, error) { return img, nil }
+	t.Cleanup(func() { fetchAvatar = real })
+
+	viewer := gitx.Viewer{Login: "me", Name: "Me", AvatarURL: "https://avatars.githubusercontent.com/u/1?v=4"}
+	run := func(images bool, colours colorprofile.Profile) (*Model, tea.Cmd) {
+		m := New(demoOpts())
+		m.opts.Images, m.profile, m.colours = images, ProfileFull, colours
+		m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+		m.me = slot[gitx.Viewer]{val: viewer, loaded: true}
+		_, cmd := m.Update(m.ensureAvatar()())
+		return m, cmd
+	}
+
+	m, cmd := run(true, colorprofile.TrueColor)
+	if cmd == nil || !strings.Contains(fmt.Sprint(cmd()), "a=p") || !strings.ContainsRune(m.avatarArt(false)[0], kitty.Placeholder) {
+		t.Fatal("with Kitty graphics the avatar is a stored picture")
+	}
+	if free := m.freePics(); free == nil || !strings.Contains(fmt.Sprint(free()), "a=d") {
+		t.Fatal("quitting deletes the avatar")
+	}
+	if m, _ = run(false, colorprofile.TrueColor); !strings.Contains(m.avatarArt(false)[0], "▀") {
+		t.Fatal("without graphics, colour terminals get half blocks")
+	}
+	if m, _ = run(false, colorprofile.ANSI); strings.ContainsAny(ansi.Strip(m.avatarArt(false)[0]), "▀╭") {
+		t.Fatal("16-colour terminals get characters")
+	}
+	if got := m.ensureAvatar(); got != nil {
+		t.Fatal("the same avatar is not fetched twice")
+	}
+	m = New(demoOpts())
+	m.me.val = gitx.Viewer{Name: "Mo Bell"} // no picture
+	if art := ansi.Strip(strings.Join(m.avatarArt(false), "\n")); !strings.Contains(art, "╭") || !strings.Contains(art, "MB") {
+		t.Fatalf("without a picture the avatar is framed initials:\n%s", art)
+	}
+	if got := sized(viewer.AvatarURL, 64); got != "https://avatars.githubusercontent.com/u/1?s=64&v=4" {
+		t.Fatalf("sized: %s", got)
+	}
+}
+
+func TestTogglesAreRemembered(t *testing.T) {
+	o := demoOpts()
+	o.Profile = ProfileFull
+	o.StatePath = t.TempDir() + "/state.json"
+	m := setup(t, o, 120, 30)
+	press(m, "u", "b")
+	got, err := config.LoadState(o.StatePath)
+	if err != nil || got != (config.State{UTC: true, Profile: "ascii"}) {
+		t.Fatalf("saved %+v, %v", got, err)
+	}
+	o.UTC, o.Profile = got.UTC, ProfileASCII
+	if m := setup(t, o, 120, 30); !m.utc || m.profile != ProfileASCII {
+		t.Fatal("a new run starts from the saved toggles")
+	}
+
+	// A run started with -profile off must not save that override when another toggle changes.
+	o.Profile = ProfileOff
+	m = setup(t, o, 120, 30)
+	press(m, "u")
+	if got, _ := config.LoadState(o.StatePath); got != (config.State{UTC: false, Profile: "ascii"}) {
+		t.Fatalf("pressing u saved %+v; the -profile flag should not be remembered", got)
+	}
+}
+
+// TestDemoShowsEveryFeature keeps -demo a full showcase: when a feature is added, give the fixtures what it needs
+// and add it here.
+func TestDemoShowsEveryFeature(t *testing.T) {
+	o := demoOpts()
+	o.Profile, o.Images = ProfileFull, true
+	m := setup(t, o, 140, 40)
+	drain(m, m.ensureAvatar())
+
+	s := m.profileStats(gitx.DemoNow)
+	if s.requested == 0 || s.mine == 0 || s.failing == 0 || s.changes == 0 || s.commits == 0 || s.dirty == 0 {
+		t.Fatalf("every profile count should be non-zero in demo: %+v", s)
+	}
+	if m.avatar.img == nil || !strings.ContainsRune(m.avatarArt(false)[0], kitty.Placeholder) {
+		t.Fatal("demo should draw an avatar picture")
+	}
+
+	press(m, "g", "p")
+	if !strings.ContainsRune(strings.Join(m.detailLines(), ""), kitty.Placeholder) {
+		t.Fatal("demo PRs should draw their pictures")
+	}
+	for _, mode := range []Profile{ProfileASCII, ProfileText, ProfileOff, ProfileFull} {
+		press(m, "b")
+		if m.profile != mode {
+			t.Fatalf("b should cycle to %s", profileNames[mode])
+		}
+	}
+}
+
+func TestVersionShown(t *testing.T) {
+	o := demoOpts()
+	o.Version, o.Executable = "v9.9.9", "/usr/local/bin/git-tui"
+	m := setup(t, o, 120, 30)
+	press(m, "g", "c")
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui") || !strings.Contains(out, "v9.9.9") {
+		t.Fatalf("Connections should list the version:\n%s", out)
+	}
+	press(m, "?")
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui v9.9.9") {
+		t.Fatal("help should show the version")
 	}
 }

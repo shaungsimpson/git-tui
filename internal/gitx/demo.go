@@ -16,6 +16,9 @@ type Demo struct{}
 
 var demoBase = time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
 
+// DemoNow is the moment the fixtures describe; "this week" in demo mode counts back from it.
+var DemoNow = demoBase
+
 var demoSubjects = []string{
 	"Shave the yak before adding the feature",
 	"Fix off-by-one error in the off-by-one fix",
@@ -114,8 +117,9 @@ func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
 	if err := demoErr(repo); err != nil {
 		return nil, err
 	}
-	reviews := []string{"APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", ""}
-	checks := []CheckState{ChecksPassing, ChecksFailing, ChecksPending, ChecksNone}
+	// Offset from authors, so the demo viewer (alice) has a failing PR with changes requested.
+	reviews := []string{"CHANGES_REQUESTED", "REVIEW_REQUIRED", "", "APPROVED"}
+	checks := []CheckState{ChecksFailing, ChecksPending, ChecksNone, ChecksPassing}
 	authors := []string{"alice", "bob", "chuck", "dave"}
 	seed := len(repo)
 	var prs []PR
@@ -200,5 +204,14 @@ func (Demo) PRDiff(_ context.Context, repo, _ string, number int) ([]string, err
 	return []string{
 		"diff --git a/app/maths.ts b/app/maths.ts", "--- a/app/maths.ts", "+++ b/app/maths.ts",
 		"@@ -10,3 +10,3 @@", fmt.Sprintf("-  // PR #%d", number), "-  return round(a) + round(b)", "+  return round(a + b)",
+	}, nil
+}
+
+// Viewer is a fixture account; its picture is drawn by Demo.Image.
+func (Demo) Viewer(context.Context, string) (Viewer, error) {
+	return Viewer{
+		Login: "alice", Name: "Alice", Bio: "Platform engineer. Has tried turning it off and on again.",
+		Company: "Acme", Location: "Remote", Followers: 128, Following: 40, AvatarURL: DemoAvatarURL,
+		GitName: "Alice", GitEmail: "alice@example.com",
 	}, nil
 }

@@ -23,3 +23,7 @@ run = "./bin/git-tui -demo"
 [tasks.install-cli]
 description = "Install the git-tui command into ~/go/bin"
 run = "go install ./cmd/git-tui"
+
+[tasks.screenshots]
+description = "Capture README screenshots of the demo in Ghostty (macOS; needs Screen Recording and Accessibility)"
+run = "scripts/screenshots.sh"
