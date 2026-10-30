@@ -1069,3 +1069,35 @@ func TestAuthorColours(t *testing.T) {
 		t.Fatalf("the demo's people should spread across the palette, got %d colours", len(seen))
 	}
 }
+
+func TestStackedRowsGiveTheTitleItsOwnLine(t *testing.T) {
+	m := setup(t, demoOpts(), 90, 30) // a list narrower than stackedBelow
+	press(m, "g", "a")
+	if !m.stacked(viewActivity) {
+		t.Fatal("setup: rows should be stacked")
+	}
+	c := m.activity()[1]
+	lines := m.row(m.commitSegs(c, m.layout().mainW, true), m.layout().mainW, false, true)
+	if len(lines) != 2 || !strings.Contains(ansi.Strip(lines[0]), c.Author) {
+		t.Fatalf("stacked: the author belongs on the first line: %q", lines)
+	}
+	if got := strings.TrimSpace(ansi.Strip(lines[1])); got != c.Subject {
+		t.Fatalf("stacked: the second line is the title alone, got %q", got)
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})
+	wide := m.row(m.commitSegs(c, m.layout().mainW, true), m.layout().mainW, false, false)
+	s := ansi.Strip(wide[0])
+	ti, ai := strings.Index(s, c.Subject), strings.Index(s, c.Author)
+	if len(wide) != 1 || ti < 0 || ai < 0 || ti > ai {
+		t.Fatalf("wide: one line with both, title before author: %q", wide)
+	}
+
+	// A first line too narrow for the author keeps it whole, after the title on the second line.
+	long := []seg{{strings.Repeat("x", 40), m.st.text}}
+	fits := titled(long, seg{"Title  ", m.st.text}, seg{"bob", m.st.muted}, true, 50)
+	cut := titled(long, seg{"Title  ", m.st.text}, seg{"renovate[bot]", m.st.muted}, true, 50)
+	if fits[1].s != "bob" || fits[2].s != brk.s || cut[1].s != brk.s || cut[3].s != "renovate[bot]" {
+		t.Fatalf("author placement: fits %v, too long %v", fits, cut)
+	}
+}

@@ -359,10 +359,24 @@ func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 	if showRepo {
 		segs = append(segs, seg{pad(clean(c.Repo), 14), m.st.accent})
 	}
-	return append(segs,
-		seg{short(c.Hash) + "  ", m.st.muted}, brk,
-		seg{clean(c.Subject) + "  ", m.st.text},
-		seg{clean(c.Author), m.authorStyle(c.Author, false)})
+	segs = append(segs, seg{short(c.Hash) + "  ", m.st.muted})
+	return titled(segs, seg{clean(c.Subject) + "  ", m.st.text}, seg{clean(c.Author), m.authorStyle(c.Author, false)}, m.stacked(m.view), w)
+}
+
+// titled ends a row with its title and author. Stacked, the author joins the details on the first line when
+// it fits in w, so the second line is the title alone; a long author goes after the title instead of being cut.
+func titled(segs []seg, title, author seg, stacked bool, w int) []seg {
+	if !stacked {
+		return append(segs, title, author)
+	}
+	first := 2 + lipgloss.Width(author.s) // row draws a two-cell lead before each line
+	for _, s := range segs {
+		first += lipgloss.Width(s.s)
+	}
+	if first <= w {
+		return append(segs, author, brk, title)
+	}
+	return append(segs, brk, title, author)
 }
 
 // tagBase is the base tag chosen in Tags, or "" when the comparison state belongs to another view.
@@ -518,8 +532,8 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
 	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.muted}, seg{pad(review, 8), rst})
-	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted}, brk)
-	return append(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)})
+	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted})
+	return titled(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)}, m.stacked(m.view), w)
 }
 
 func (m *Model) prDetail(p gitx.PR) []string {
