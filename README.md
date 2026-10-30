@@ -75,29 +75,6 @@ To update later, run the install command again; `git-tui -version` shows what yo
 
 No Nerd Font or image support is required.
 
-## Build and run
-
-This is for working on the code. To only use the app, see [Get started](#get-started).
-
-Tasks run with [mise](https://mise.jdx.dev). On first use in this folder, run `mise trust`.
-
-```sh
-mise tasks                  # list tasks
-mise run build              # builds bin/git-tui
-mise run lint               # golangci-lint (includes gofmt and go vet)
-mise run test               # gofmt check, go vet, tests with the race detector
-mise run demo               # builds and runs with fixture data, no repositories read
-mise run start              # builds and runs with the default config location
-mise run start -- -config examples/config.example.json
-mise run install-cli        # installs the git-tui command into Go's install directory
-```
-
-`git-tui -version` prints the version it was built from (for example `v0.1.0`, or a pre-release version between releases). The app also shows it in the Connections view and on the `?` help screen.
-
-After `mise run install-cli`, run `git-tui` from anywhere (Go's install directory must be on your `PATH`: `go env GOBIN`, or `$(go env GOPATH)/bin` if that is empty, usually `~/go/bin`). Run it again after pulling changes. A build from a clone shows a pre-release version such as `v0.3.1-0.20261030…` (Go 1.24 and later record it from the commit), the tag when you are exactly on a release, and `+dirty` on the end when there are uncommitted changes.
-
-`mise run install-cli` and the [Get started](#get-started) install write the same `git-tui` executable to the same install directory, so each replaces the other: the last one you ran is the one you have. To go back to the release after testing your own build, run the Get started install command again. `go version -m "$(which git-tui)"` tells them apart: a release has an `h1:` checksum on its `mod` line, and a build from a clone has a `vcs.revision` line instead. There is no mise task for the release install on purpose: mise only runs inside a clone, and the release install is for when you do not need one.
-
 ## Configuration
 
 The configuration file is a small JSON file:
@@ -200,30 +177,6 @@ While the filter input is open, all typing and pasted text go to the input, not 
 - Loads run asynchronously. A refresh keeps the existing content visible, and results from superseded requests are discarded.
 - Text from Git (subjects, branch names, errors) has its control characters and escape sequences removed before display.
 
-## Development
+## Working on git-tui
 
-```sh
-mise run lint && mise run test && mise run build
-```
-
-[AGENTS.md](AGENTS.md) has the definition of done for a pull request and the design principles to follow. It is written for people and coding agents alike.
-
-Tests use fixtures and temporary Git repositories. They do not touch remote services.
-
-`mise run screenshots` regenerates the pictures in `docs/images/` from the demo in a real Ghostty window, so the avatar and PR pictures are drawn as they really look. It needs macOS and Ghostty, and the terminal that runs it needs Screen Recording and Accessibility permission (System Settings > Privacy & Security). It presses keys in the window it opens, so leave the keyboard alone for the 20 seconds or so it takes.
-
-Demo mode is the showcase, so it must show every feature. When you add one, give the demo fixtures (`internal/gitx/demo.go`, `demo_images.go`) what it needs and extend `TestDemoShowsEveryFeature`.
-
-CI (`.github/workflows/ci.yml`) runs the lint and test checks plus a build on every pull request to `main` and on every push to `main`.
-
-## Layout
-
-```
-cmd/git-tui        entry point and flags
-internal/config      JSON config loading and per-repository validation
-internal/gitx        read-only git and gh runner, parsers, demo fixtures
-internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go)
-internal/termimg     picture downloads, Kitty graphics, colour-block and character drawing
-scripts              screenshots.sh, behind mise run screenshots
-docs/images          README screenshots
-```
+[docs/development.md](docs/development.md) covers building, testing, the checks a pull request must pass, regenerating the screenshots (with the one-off macOS setup), releasing, and the code layout. [AGENTS.md](AGENTS.md) has the definition of done and the design principles, for people and coding agents alike.

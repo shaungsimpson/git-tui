@@ -8,9 +8,9 @@ A pull request is ready when all of these hold. CI checks the first two; reviewe
 
 1. **Lint passes:** `mise run lint` (golangci-lint with `.golangci.yml`, which includes gofmt and vet).
 2. **Tests pass:** `mise run test`. New logic (a branch, a loop, a parser, anything touching security or the network) comes with a test. Tests never touch the network or a real terminal: use `gitx.Demo`, a fake `Source`, or the package variables such as `fetchPic` and `openBrowser`.
-3. **Docs match the change.** Update the README in the same pull request for anything a user can see or do: the Get started steps, flags, the Views and Keyboard tables, Scope and behaviour, the Layout tree, and files the app reads or writes.
+3. **Docs match the change.** Update the README in the same pull request for anything a user can see or do: the Get started steps, flags, the Views and Keyboard tables, Scope and behaviour, and files the app reads or writes. Update [docs/development.md](docs/development.md) for anything about building, testing, tasks or the code layout.
 4. **Demo shows it.** Give the demo fixtures (`internal/gitx/demo.go`, `demo_images.go`) what the feature needs to appear, and extend `TestDemoShowsEveryFeature`. Demo is how the tool is shown without real data, so a feature missing from demo is invisible.
-5. **Screenshots are current.** When the screen visibly changes, run `mise run screenshots` (macOS with Ghostty; see the README) and commit `docs/images/`. If you cannot run it, say so in the pull request.
+5. **Screenshots are current.** When the screen visibly changes, run `mise run screenshots` (macOS with Ghostty; one-off setup in [docs/development.md](docs/development.md#screenshots)) and commit `docs/images/`. If you cannot run it, say so in the pull request.
 6. **The pull request says what was not checked**, such as a terminal you could not try or a path that needs real GitHub data.
 
 ## Design principles
