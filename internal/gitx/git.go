@@ -1,0 +1,218 @@
+// Package gitx reads repository state through the installed git executable. Every call is read-only.
+package gitx
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Commit is one log entry.
+type Commit struct {
+	Repo    string
+	Hash    string
+	Author  string
+	When    time.Time
+	Subject string
+}
+
+// Tag is a tag pointing (possibly via an annotated tag object) at a commit.
+type Tag struct {
+	Name    string
+	Commit  string
+	When    time.Time
+	Subject string
+}
+
+// Summary is the worktree and tracking state of a repository.
+type Summary struct {
+	Branch     string // empty when detached
+	Head       string
+	Upstream   string
+	Ahead      int
+	Behind     int
+	HasAB      bool // ahead/behind is only known when an upstream exists
+	Staged     int
+	Unstaged   int
+	Untracked  int
+	Conflicted int
+	Last       *Commit
+}
+
+// Clean reports whether the worktree has no changes.
+func (s Summary) Clean() bool {
+	return s.Staged+s.Unstaged+s.Untracked+s.Conflicted == 0
+}
+
+// Source supplies repository data. Git reads real repositories; Demo returns fixtures.
+type Source interface {
+	Summary(ctx context.Context, repo, dir string) (Summary, error)
+	Log(ctx context.Context, repo, dir string, n int) ([]Commit, error)
+	Tags(ctx context.Context, repo, dir string) ([]Tag, error)
+	Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error)
+}
+
+// Git runs the git executable with a per-call timeout.
+type Git struct {
+	Timeout time.Duration
+}
+
+const logFormat = "--format=%H%x1f%an%x1f%aI%x1f%s%x1e"
+
+func (g Git) run(ctx context.Context, dir string, args ...string) (string, error) {
+	timeout := g.Timeout
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	// No credential prompts, no index refresh writes, stable output.
+	cmd.Env = gitEnv(os.Environ())
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("git %s timed out after %s", args[0], timeout)
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", args[0], msg)
+	}
+	return stdout.String(), nil
+}
+
+func (g Git) Summary(ctx context.Context, repo, dir string) (Summary, error) {
+	out, err := g.run(ctx, dir, "status", "--porcelain=v2", "--branch", "--untracked-files=normal")
+	if err != nil {
+		return Summary{}, err
+	}
+	s := ParseStatus(out)
+	if s.Head == "" {
+		return s, nil // unborn branch: nothing to log yet
+	}
+	commits, err := g.Log(ctx, repo, dir, 1)
+	if err != nil {
+		return s, err
+	}
+	if len(commits) > 0 {
+		s.Last = &commits[0]
+	}
+	return s, nil
+}
+
+func (g Git) Log(ctx context.Context, repo, dir string, n int) ([]Commit, error) {
+	out, err := g.run(ctx, dir, "log", "-n", strconv.Itoa(n), logFormat)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLog(repo, out), nil
+}
+
+func (g Git) Tags(ctx context.Context, repo, dir string) ([]Tag, error) {
+	out, err := g.run(ctx, dir, "for-each-ref", "refs/tags", "--sort=-creatordate",
+		"--format=%(refname:short)%1f%(objectname)%1f%(*objectname)%1f%(creatordate:iso-strict)%1f%(contents:subject)")
+	if err != nil {
+		return nil, err
+	}
+	return ParseTags(out), nil
+}
+
+// Compare lists commits reachable from head but not from base.
+func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error) {
+	out, err := g.run(ctx, dir, "log", logFormat, "refs/tags/"+base+"..refs/tags/"+head, "--")
+	if err != nil {
+		return nil, err
+	}
+	return ParseLog(repo, out), nil
+}
+
+// gitEnv drops inherited GIT_* variables (GIT_DIR would point every repository at one repo),
+// then disables prompts and optional index writes.
+func gitEnv(env []string) []string {
+	out := make([]string, 0, len(env)+3)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "GIT_") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+}
+
+// ParseLog parses output produced with logFormat.
+func ParseLog(repo, out string) []Commit {
+	var commits []Commit
+	for _, rec := range strings.Split(out, "\x1e") {
+		f := strings.Split(strings.TrimSpace(rec), "\x1f")
+		if len(f) != 4 {
+			continue
+		}
+		when, _ := time.Parse(time.RFC3339, f[2])
+		commits = append(commits, Commit{Repo: repo, Hash: f[0], Author: f[1], When: when, Subject: f[3]})
+	}
+	return commits
+}
+
+// ParseTags parses the for-each-ref output used by Git.Tags.
+func ParseTags(out string) []Tag {
+	var tags []Tag
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Split(line, "\x1f")
+		if len(f) != 5 {
+			continue
+		}
+		commit := f[1]
+		if f[2] != "" {
+			commit = f[2] // annotated: peel to the tagged commit
+		}
+		when, _ := time.Parse(time.RFC3339, f[3])
+		tags = append(tags, Tag{Name: f[0], Commit: commit, When: when, Subject: f[4]})
+	}
+	return tags
+}
+
+// ParseStatus parses `git status --porcelain=v2 --branch`.
+func ParseStatus(out string) Summary {
+	var s Summary
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "# branch.oid "):
+			if oid := strings.TrimPrefix(line, "# branch.oid "); oid != "(initial)" {
+				s.Head = oid
+			}
+		case strings.HasPrefix(line, "# branch.head "):
+			if b := strings.TrimPrefix(line, "# branch.head "); b != "(detached)" {
+				s.Branch = b
+			}
+		case strings.HasPrefix(line, "# branch.upstream "):
+			s.Upstream = strings.TrimPrefix(line, "# branch.upstream ")
+		case strings.HasPrefix(line, "# branch.ab "):
+			var a, b int
+			if _, err := fmt.Sscanf(strings.TrimPrefix(line, "# branch.ab "), "+%d -%d", &a, &b); err == nil {
+				s.Ahead, s.Behind, s.HasAB = a, b, true
+			}
+		case strings.HasPrefix(line, "1 "), strings.HasPrefix(line, "2 "):
+			if len(line) >= 4 {
+				if line[2] != '.' {
+					s.Staged++
+				}
+				if line[3] != '.' {
+					s.Unstaged++
+				}
+			}
+		case strings.HasPrefix(line, "u "):
+			s.Conflicted++
+		case strings.HasPrefix(line, "? "):
+			s.Untracked++
+		}
+	}
+	return s
+}

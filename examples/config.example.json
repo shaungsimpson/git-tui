@@ -1,0 +1,7 @@
+{
+  "repositories": [
+    { "name": "backend", "path": "~/Code/backend" },
+    { "name": "frontend", "path": "~/Code/frontend" },
+    { "name": "personal-site", "path": "~/Code/personal-site" }
+  ]
+}

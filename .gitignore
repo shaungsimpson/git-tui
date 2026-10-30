@@ -1,0 +1,13 @@
+# build output
+bin/
+
+# personal config and env files; examples/config.example.json is the tracked template
+/config.json
+*.local.json
+.env
+.env.*
+
+# OS and editor clutter
+.DS_Store
+.idea/
+.vscode/

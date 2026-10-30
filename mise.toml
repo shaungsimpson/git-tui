@@ -1,0 +1,25 @@
+[tasks.build]
+description = "Build bin/git-tui"
+run = "go build -o bin/git-tui ./cmd/git-tui"
+
+[tasks.test]
+description = "gofmt check, go vet, tests with the race detector"
+run = [
+  "test -z \"$(gofmt -l .)\" || { gofmt -l .; echo 'run gofmt -w . on the files above'; exit 1; }",
+  "go vet ./...",
+  "go test -race ./...",
+]
+
+[tasks.start]
+description = "Build and run; extra arguments go to git-tui"
+depends = ["build"]
+run = "./bin/git-tui"
+
+[tasks.demo]
+description = "Build and run with fixture data"
+depends = ["build"]
+run = "./bin/git-tui -demo"
+
+[tasks.install-cli]
+description = "Install the git-tui command into ~/go/bin"
+run = "go install ./cmd/git-tui"
