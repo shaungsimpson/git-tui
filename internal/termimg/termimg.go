@@ -29,16 +29,13 @@ const (
 	maxRows   = 40
 )
 
-// Supported reports whether the terminal draws Kitty placeholders. tmux is left out: it would need passthrough.
+// Supported reports whether the terminal draws Kitty Unicode placeholders. tmux is left out (it would need
+// passthrough), and so are terminals not yet tested with placeholders, such as WezTerm.
 func Supported(getenv func(string) string) bool {
 	if getenv("TMUX") != "" {
 		return false
 	}
-	switch getenv("TERM_PROGRAM") {
-	case "ghostty", "WezTerm":
-		return true
-	}
-	return getenv("KITTY_WINDOW_ID") != "" || getenv("TERM") == "xterm-kitty"
+	return getenv("TERM_PROGRAM") == "ghostty" || getenv("KITTY_WINDOW_ID") != "" || getenv("TERM") == "xterm-kitty"
 }
 
 // Link is a picture referenced from Markdown or HTML.

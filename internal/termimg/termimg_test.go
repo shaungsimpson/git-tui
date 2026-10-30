@@ -123,4 +123,10 @@ func TestSupported(t *testing.T) {
 	if Supported(env(map[string]string{"TERM_PROGRAM": "Apple_Terminal"})) {
 		t.Fatal("Terminal.app has no Kitty graphics")
 	}
+	if Supported(env(map[string]string{"TERM_PROGRAM": "WezTerm"})) {
+		t.Fatal("WezTerm stays off until placeholders are tested there")
+	}
+	if !Supported(env(map[string]string{"TERM": "xterm-kitty"})) {
+		t.Fatal("kitty draws placeholders")
+	}
 }

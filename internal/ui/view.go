@@ -908,21 +908,49 @@ func (m *Model) detailPane(w, h int) []string {
 
 // ---- help, status and footer ----
 
+// helpLines puts the view jumps first, then the shortcuts in one column, or in two when the terminal is wide
+// or one column would not fit. If two still do not fit, the blank separator goes. The footer says how to
+// close help, so it needs no line here.
 func (m *Model) helpLines() []string {
-	lines := []string{m.st.titleFocus.Render(" Keyboard shortcuts · " + viewNames[m.view]), ""}
+	lines := []string{m.st.titleFocus.Render(" Keyboard shortcuts · " + viewNames[m.view])}
+	row, label := "", pad("g then", 10)
+	for _, g := range goKeys { // wrap the jumps rather than cut them off
+		item := m.st.key.Render(g.key) + " " + m.st.text.Render(viewNames[g.view])
+		if row != "" && lipgloss.Width(row)+lipgloss.Width(item)+3 > m.width-14 {
+			lines = append(lines, "  "+m.st.key.Render(label)+row)
+			row, label = "", pad("", 10)
+		}
+		if row != "" {
+			row += m.st.muted.Render(" · ")
+		}
+		row += item
+	}
+	lines = append(lines, "  "+m.st.key.Render(label)+row, "")
+	var keys []string
 	for _, a := range actions {
 		h := a.key.Help()
 		if h.Key == "" || !a.available(m) {
 			continue
 		}
-		lines = append(lines, "  "+m.st.key.Render(pad(h.Key, 10))+m.st.text.Render(h.Desc))
+		// 9 fits "shift+tab"; with the longest description a column is 30 cells, half the 60-column minimum.
+		keys = append(keys, "  "+m.st.key.Render(pad(h.Key, 9))+m.st.text.Render(h.Desc))
 	}
-	var seq []string
-	for _, g := range goKeys {
-		seq = append(seq, m.st.key.Render(g.key)+" "+m.st.text.Render(viewNames[g.view]))
+	bodyH := m.layout().bodyH
+	if m.width < 100 && len(lines)+len(keys) <= bodyH {
+		return append(lines, keys...)
 	}
-	lines = append(lines, "  "+m.st.key.Render(pad("g then", 10))+strings.Join(seq, m.st.muted.Render(" · ")))
-	return append(lines, "", m.st.muted.Render("  Esc or ? closes this help."))
+	half, col := (len(keys)+1)/2, m.width/2
+	if len(lines)+half > bodyH {
+		lines = lines[:len(lines)-1] // drop the blank separator before dropping a shortcut
+	}
+	for i := range half {
+		row := keys[i] + strings.Repeat(" ", max(0, col-lipgloss.Width(keys[i])))
+		if i+half < len(keys) {
+			row += keys[i+half]
+		}
+		lines = append(lines, row)
+	}
+	return lines
 }
 
 type health struct {
@@ -1043,6 +1071,9 @@ func (m *Model) diffLines(h int) []string {
 }
 
 func (m *Model) footer() string {
+	if m.help {
+		return " " + m.st.key.Render("esc") + m.st.muted.Render(" or ") + m.st.key.Render("?") + m.st.muted.Render(" close help")
+	}
 	if m.diff.open {
 		return ansi.Truncate(" "+m.st.key.Render("j/k")+m.st.muted.Render(" scroll  ")+m.st.key.Render("pgup/pgdn")+
 			m.st.muted.Render(" page  ")+m.st.key.Render("esc")+m.st.muted.Render(" close"), m.width, "…")

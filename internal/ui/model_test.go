@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 
 	"github.com/shaungsimpson/git-tui/internal/config"
@@ -679,6 +680,34 @@ func TestPullRequestPictureError(t *testing.T) {
 	press(m, "g", "p")
 	if detail := strings.Join(m.detailLines(), "\n"); !strings.Contains(detail, "[image: shot · not shown: HTTP 404]") {
 		t.Fatalf("a failed picture should say why, not keep loading:\n%s", detail)
+	}
+}
+
+func TestHelpFitsCommonSizes(t *testing.T) {
+	for _, sz := range [][2]int{{80, 24}, {60, 16}, {140, 30}} {
+		m := setup(t, demoOpts(), sz[0], sz[1])
+		press(m, "g", "p", "?") // Pull requests offers the most shortcuts
+		out := ansi.Strip(m.render())
+		if !strings.Contains(out, "g then") || !strings.Contains(out, "c Connections") {
+			t.Errorf("%dx%d: every view jump should be visible, including the last", sz[0], sz[1])
+		}
+		if !strings.Contains(m.footer(), "close help") {
+			t.Errorf("%dx%d: the footer should say how to close help", sz[0], sz[1])
+		}
+		if !strings.Contains(out, "quit") || !strings.Contains(out, "UTC / local times") {
+			t.Errorf("%dx%d: every shortcut should fit, including u and ctrl+c:\n%s", sz[0], sz[1], out)
+		}
+	}
+
+	// The most shortcuts at once: an active filter adds esc. It must still fit at the minimum size.
+	m := setup(t, demoOpts(), 60, 16)
+	press(m, "g", "p", "/", "x", "enter", "?")
+	out := ansi.Strip(m.render())
+	// "UTC / local times" is the longest description; seeing it whole means no column was cut at the edge.
+	for _, want := range []string{"back", "quit", "UTC / local times", "c Connections"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("60x16 with every shortcut available is missing %q:\n%s", want, out)
+		}
 	}
 }
 
