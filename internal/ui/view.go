@@ -540,10 +540,10 @@ func (m *Model) picLines(l termimg.Link) []string {
 	st, ok := m.pics[l.URL]
 	cols := m.picCols()
 	switch {
+	case ok && st.err != nil: // before the loading check: a failed picture is never placed
+		return note("not shown: " + clean(st.err.Error()))
 	case !ok || st.loading || st.placed != cols: // placed != cols only until the new size is sent
 		return note("loading…")
-	case st.err != nil:
-		return note("not shown: " + clean(st.err.Error()))
 	}
 	return st.pic.Lines(cols)
 }

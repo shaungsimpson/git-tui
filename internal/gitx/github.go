@@ -71,6 +71,12 @@ func (g Git) PRDiff(ctx context.Context, repo, dir string, number int) ([]string
 	return strings.Split(strings.TrimRight(out, "\n"), "\n"), nil
 }
 
+// GHToken is the login token of the GitHub CLI, for downloads gh cannot make itself.
+func GHToken(ctx context.Context) (string, error) {
+	out, err := command(ctx, "", 5*time.Second, "gh", "auth", "token")
+	return strings.TrimSpace(out), err
+}
+
 // slug is the GitHub "owner/name" of the repository's origin remote.
 func (g Git) slug(ctx context.Context, dir string) (string, error) {
 	url, err := g.run(ctx, dir, "remote", "get-url", "origin")

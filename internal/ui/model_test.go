@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -658,6 +659,26 @@ func TestPullRequestPictures(t *testing.T) {
 	}
 	if free := m.freePics(); free == nil || !strings.Contains(fmt.Sprint(free()), "a=d") {
 		t.Fatal("quitting should delete the pictures from the terminal")
+	}
+}
+
+func TestPullRequestPictureError(t *testing.T) {
+	real := fetchPic
+	fetchPic = func(context.Context, string, int) (termimg.Picture, error) {
+		return termimg.Picture{}, errors.New("HTTP 404")
+	}
+	t.Cleanup(func() { fetchPic = real })
+
+	o := demoOpts()
+	o.Images = true
+	m := setup(t, o, 140, 40)
+	m.repos[0].prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "x",
+		Body: `<img alt="shot" src="https://github.com/user-attachments/assets/aaa">`}}
+	m.repos[0].prs.loaded = true
+	m.selectRepo(1)
+	press(m, "g", "p")
+	if detail := strings.Join(m.detailLines(), "\n"); !strings.Contains(detail, "[image: shot · not shown: HTTP 404]") {
+		t.Fatalf("a failed picture should say why, not keep loading:\n%s", detail)
 	}
 }
 

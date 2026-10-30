@@ -148,7 +148,8 @@ const picBase = 0x677400
 
 // fetchPic downloads and encodes one picture; a variable so tests never touch the network.
 var fetchPic = func(ctx context.Context, url string, id int) (termimg.Picture, error) {
-	data, err := termimg.Download(ctx, url)
+	token, _ := gitx.GHToken(ctx) // without it, attachments in private repositories are a 404
+	data, err := termimg.Download(ctx, url, token)
 	if err != nil {
 		return termimg.Picture{}, err
 	}

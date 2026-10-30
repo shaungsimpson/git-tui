@@ -80,6 +80,9 @@ func Allowed(raw string) bool {
 	return false
 }
 
+// githubHost is the only host a login token is sent to; a variable so tests can use a local server.
+var githubHost = "github.com"
+
 // client follows GitHub's redirects to signed storage links, but only over https.
 var client = &http.Client{
 	Timeout: 20 * time.Second,
@@ -91,14 +94,22 @@ var client = &http.Client{
 	},
 }
 
-// Download fetches a GitHub-hosted picture of at most maxBytes. No credentials are sent.
-func Download(ctx context.Context, raw string) ([]byte, error) {
+// Download fetches a GitHub-hosted picture of at most maxBytes. token, if set, is sent only to github.com:
+// private repositories' attachments need it. The client drops it when GitHub redirects to its storage host.
+func Download(ctx context.Context, raw, token string) ([]byte, error) {
 	if !Allowed(raw) {
 		return nil, errors.New("not a GitHub image link")
 	}
+	return download(ctx, raw, token)
+}
+
+func download(ctx context.Context, raw, token string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
 		return nil, err
+	}
+	if token != "" && req.URL.Hostname() == githubHost {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"context"
 	"image"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -37,8 +39,42 @@ func TestAllowed(t *testing.T) {
 			t.Errorf("Allowed(%q) != %v", raw, want)
 		}
 	}
-	if _, err := Download(context.Background(), "https://evil.example/x.png"); err == nil {
+	if _, err := Download(context.Background(), "https://evil.example/x.png", "secret"); err == nil {
 		t.Fatal("Download must refuse other hosts before connecting")
+	}
+}
+
+// The token goes to GitHub, and is not forwarded when GitHub redirects to its storage host.
+func TestTokenStaysWithGitHub(t *testing.T) {
+	var storageAuth string
+	storage := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		storageAuth = r.Header.Get("Authorization")
+		w.Write([]byte("png"))
+	}))
+	defer storage.Close()
+	var githubAuth string
+	github := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		githubAuth = r.Header.Get("Authorization")
+		// A different host name for the same local server, like github.com redirecting to S3.
+		http.Redirect(w, r, strings.Replace(storage.URL, "127.0.0.1", "localhost", 1), http.StatusFound)
+	}))
+	defer github.Close()
+
+	realClient, realHost := client.Transport, githubHost
+	client.Transport = github.Client().Transport
+	githubHost = "127.0.0.1"
+	t.Cleanup(func() { client.Transport, githubHost = realClient, realHost })
+	github.Client().Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify = true // localhost is not in the test certificate
+
+	data, err := download(context.Background(), github.URL+"/user-attachments/assets/x", "secret")
+	if err != nil || string(data) != "png" {
+		t.Fatalf("download: %q %v", data, err)
+	}
+	if githubAuth != "Bearer secret" {
+		t.Fatalf("GitHub should get the token, got %q", githubAuth)
+	}
+	if storageAuth != "" {
+		t.Fatalf("the token leaked to the storage host: %q", storageAuth)
 	}
 }
 
