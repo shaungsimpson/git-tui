@@ -497,11 +497,16 @@ func TestShortDatesAndFailedRefreshMark(t *testing.T) {
 }
 
 func TestToggleUTC(t *testing.T) {
+	// Pin the local zone: CI machines run in UTC, where local and UTC look the same.
+	real := time.Local
+	time.Local = time.FixedZone("AEDT", 11*60*60)
+	t.Cleanup(func() { time.Local = real })
+
 	m := setup(t, demoOpts(), 140, 40)
 	at := time.Date(2026, 10, 30, 3, 12, 0, 0, time.UTC)
-	local := at.Local().Format(dateFmt)
-	if m.when(at) != local || strings.Contains(m.header(), " UTC") {
-		t.Fatal("times should start in the local zone")
+	local := "2026-10-30 14:12"
+	if m.when(at) != local || !strings.Contains(m.header(), "AEDT") || strings.Contains(m.header(), " UTC") {
+		t.Fatalf("times should start in the local zone: %q, header %q", m.when(at), m.header())
 	}
 	press(m, "u")
 	if m.when(at) != "2026-10-30 03:12" || !strings.Contains(m.header(), "UTC") || !strings.Contains(m.flash, "UTC") {

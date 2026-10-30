@@ -107,6 +107,8 @@ mise run test && mise run build
 
 Tests use fixtures and temporary Git repositories. They do not touch remote services.
 
+CI (`.github/workflows/ci.yml`) runs the same checks plus a build on every pull request to `main` and on every push to `main`.
+
 ## Layout
 
 ```
