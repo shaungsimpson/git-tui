@@ -29,6 +29,12 @@ mise run install-cli        # installs the git-tui command into ~/go/bin
 
 Without cloning, the same command installs a release: `GOPRIVATE=github.com/acme go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest` (the repository is private, so Go fetches it with your Git credentials).
 
+If it fails:
+
+- `404 Not Found` from `sum.golang.org`: Go asked a public service about a private repository. Set `GOPRIVATE` as above, or once with `go env -w GOPRIVATE=github.com/acme`.
+- `could not read Username for 'https://github.com'`: Git cannot log in to GitHub. Run `gh auth setup-git`, or if you use SSH keys, `git config --global url."git@github.com:".insteadOf "https://github.com/"`.
+- `command not found: git-tui` after a successful install: add `~/go/bin` to your `PATH`.
+
 After `mise run install-cli`, run `git-tui` from anywhere (`~/go/bin` must be on your `PATH`). Run it again after pulling changes.
 
 ## Configuration
