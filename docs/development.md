@@ -90,14 +90,46 @@ Look at the pictures before committing them: each should show a different screen
 
 ## Releasing
 
-Releases are git tags on `main`, made after a pull request is squash-merged; there is no version file to bump.
+A release is a git tag on `main` plus a GitHub Release with notes; there is no version file to bump. Release once the pull requests for it are merged and CI has passed on `main`.
 
-```sh
-git switch main && git pull
-git tag v0.4.0 && git push origin v0.4.0
-```
+1. **Pick the version** and keep it in a shell variable; the commands below use it. Below 1.0, a new feature bumps the middle number (`v0.4.0` to `v0.5.0`); fixes alone bump the last (`v0.4.1`).
 
-A new feature bumps the middle number while the version is below 1.0 (`v0.3.0` to `v0.4.0`); a fix alone bumps the last (`v0.3.1`). Users get it with the README's install command.
+   ```sh
+   v=v0.4.2
+   ```
+
+2. **Check `main`** is clean, exactly `origin/main`, and green. The commands are chained, so the first failure stops the rest; then confirm the CI run listed for this exact commit passed:
+
+   ```sh
+   git switch main &&
+   git pull --ff-only &&
+   test -z "$(git status --porcelain)" &&
+   test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" &&
+   mise run lint &&
+   mise run test &&
+   gh run list --commit "$(git rev-parse HEAD)"
+   ```
+
+3. **Tag it and push the tag:**
+
+   ```sh
+   git tag "$v" && git push origin "$v"
+   ```
+
+4. **Write the notes** in a file outside the clone, such as `/tmp/notes.md`, in the same shape as earlier releases (see [v0.4.1](https://github.com/shaungsimpson/git-tui/releases/tag/v0.4.1)): **New**, **Fixes**, **Notes** for anything users should know (such as extra `gh` calls), **Install or upgrade**, and the full changelog link. Leave out sections with nothing in them. Then publish the GitHub Release:
+
+   ```sh
+   gh release create "$v" --title "$v" --notes-file /tmp/notes.md --latest --verify-tag
+   ```
+
+5. **Check it installs** like a user would, from outside the clone. The check prints `installed` only when the `git-tui` first on your PATH is the new version:
+
+   ```sh
+   GOPRIVATE=github.com/acme go install "github.com/shaungsimpson/git-tui/cmd/git-tui@$v" &&
+   test "$(git-tui -version)" = "git-tui $v" && echo installed
+   ```
+
+   `@latest` can take a few minutes to see a new tag; the exact version works at once.
 
 ## Layout
 
