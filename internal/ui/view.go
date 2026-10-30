@@ -80,6 +80,7 @@ func (m *Model) stacked(v viewID) bool {
 func (m *Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.ReportFocus = true // the refresh cadence pauses while the window is in the background
 	v.BackgroundColor = m.st.bg
 	v.ForegroundColor = m.st.fg
 	v.WindowTitle = "git-tui"
@@ -208,12 +209,20 @@ func (m *Model) header() string {
 			tabs = append(tabs, m.st.tab.Render(viewNames[v]))
 		}
 	}
-	right := m.st.muted.Render(m.repoLabel() + " · " + m.zone() + " ")
+	fresh := m.freshness()
+	right := func(age string) string { return m.st.muted.Render(joinSet(" · ", m.repoLabel(), m.zone(), age) + " ") }
 	full := left + " " + strings.Join(tabs, "  ")
-	if lipgloss.Width(full)+lipgloss.Width(right)+1 > m.width {
-		full = left + " " + m.st.tabActive.Render(viewNames[m.view])
+	// The tabs matter more than the data's age: shorten the age, then drop it, before collapsing the tabs.
+	short := strings.TrimPrefix(fresh, "Updated ") // "Just now" or "3m ago"; a number has no word to capitalise
+	if short != "" {
+		short = strings.ToUpper(short[:1]) + short[1:]
 	}
-	return fit(full, right, m.width)
+	for _, age := range []string{fresh, short, ""} {
+		if r := right(age); lipgloss.Width(full)+lipgloss.Width(r)+1 <= m.width {
+			return fit(full, r, m.width)
+		}
+	}
+	return fit(left+" "+m.st.tabActive.Render(viewNames[m.view]), right(fresh), m.width)
 }
 
 func (m *Model) repoBar() string {

@@ -57,6 +57,8 @@ type slot[T any] struct {
 	loaded, loading bool
 	gen             int
 	cancel          context.CancelFunc
+	at, tried       time.Time // the last successful load, and the last attempt
+	fails           int       // failures in a row, for the retry backoff
 }
 
 type repoState struct {
@@ -218,12 +220,16 @@ type Model struct {
 	polling bool // a Deploys reload tick is scheduled
 	pollGen int  // bumped on view change so an old tick is ignored
 
+	focused bool      // the terminal window has focus; assumed until it reports otherwise
+	ticking bool      // the idle refresh tick is scheduled
+	lastUse time.Time // the last key press or return to the window
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 func New(o Options) *Model {
-	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC}
+	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock()}
 	for _, r := range o.Repos {
 		m.repos = append(m.repos, repoState{cfg: r})
 	}
@@ -236,7 +242,7 @@ func New(o Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(tea.RequestBackgroundColor, m.ensure(false))
+	return tea.Batch(tea.RequestBackgroundColor, m.ensure(false), m.scheduleRefresh())
 }
 
 func (m *Model) setTheme(dark bool) {
@@ -254,7 +260,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inspect = true // the details pane is gone; show details in place of the list
 		}
 		m.clampAll()
-		return m, m.ensurePics() // pictures are encoded for the pane width
+		// Pictures are encoded for the pane width; a taller window can reveal the profile header and its data.
+		return m, tea.Batch(m.ensurePics(), m.ensure(false))
 	case tea.ColorProfileMsg:
 		m.colours = msg.Profile
 	case avatarMsg:
@@ -265,7 +272,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		// Any key can reveal a running deploy (view, repository, filter), so check whether to start watching.
-		return m, tea.Batch(m.handleKey(msg), m.schedulePoll(), m.ensurePics())
+		cmd := tea.Batch(m.handleKey(msg), m.schedulePoll(), m.ensurePics())
+		if m.ctx.Err() != nil { // quitting
+			return m, cmd
+		}
+		return m, tea.Batch(cmd, m.touch()) // any key refreshes what is stale
+	case tea.FocusMsg:
+		m.focused = true
+		return m, m.touch()
+	case tea.BlurMsg:
+		m.focused = false // the idle tick stops at its next beat
+	case refreshMsg:
+		return m, m.onRefresh()
 	case tea.PasteMsg:
 		// Only an open text input accepts pasted text; it never reaches workspace shortcuts.
 		if m.filtering {
@@ -987,48 +1005,20 @@ func (m *Model) tagList() []gitx.Tag {
 
 // ---- loading ----
 
-// ensure starts the loads the current view needs. force reloads data that is already present.
+// ensure starts the loads for the data on screen that is stale, or all of it when force is set (Ctrl+R).
 func (m *Model) ensure(force bool) tea.Cmd {
 	var cmds []tea.Cmd
-	switch m.view {
-	case viewOverview:
-		for i := range m.repos {
-			cmds = append(cmds, m.load(i, kindSummary, force))
-		}
-	case viewActivity:
-		for _, i := range m.scope() {
-			cmds = append(cmds, m.load(i, kindLog, force))
-		}
-	case viewPRs:
-		for _, i := range m.scope() {
-			cmds = append(cmds, m.load(i, kindPRs, force))
-		}
-	case viewRepo:
-		if m.repo > 0 {
-			cmds = append(cmds, m.load(m.repo-1, kindSummary, force), m.load(m.repo-1, kindLog, force))
-		}
-	case viewTags:
-		if m.repo > 0 {
-			cmds = append(cmds, m.load(m.repo-1, kindTags, force))
-		}
-	case viewEnvs:
-		for _, i := range m.scope() {
-			cmds = append(cmds, m.load(i, kindDeps, force))
-		}
-	case viewRuns:
-		for _, i := range m.scope() {
-			cmds = append(cmds, m.load(i, kindRuns, force))
-		}
+	for _, w := range m.wanted() {
+		cmds = append(cmds, m.load(w.repo, w.kind, force))
 	}
-	if force && m.cmpOpen() {
+	if m.cmpOpen() && (force || due(&m.cmp.res, localAge)) { // an open commit list is git data on screen too
 		cmds = append(cmds, m.loadCompare())
 	}
-	cmds = append(cmds, m.profileLoads(force)...) // after the view's, which it never cancels
 	return tea.Batch(cmds...)
 }
 
 func start[T any](m *Model, s *slot[T], force bool, kind dataKind, repo int, fetch func(context.Context) (T, error)) tea.Cmd {
-	if !force && (s.loaded || s.loading || s.err != nil) { // failures retry only on Ctrl+R
+	if !force && !due(s, ageOf(kind)) {
 		return nil
 	}
 	if s.cancel != nil {
@@ -1051,13 +1041,23 @@ func finish[T any](s *slot[T], msg resultMsg) {
 	if msg.gen != s.gen {
 		return
 	}
-	s.loading, s.err = false, msg.err
-	if msg.err == nil {
-		s.val, s.loaded = msg.val.(T), true
+	s.loading, s.err, s.tried = false, msg.err, clock()
+	if msg.err != nil {
+		s.fails++
+		return
 	}
+	s.val, s.loaded, s.at, s.fails = msg.val.(T), true, s.tried, 0
 }
 
 func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
+	if kind == kindViewer {
+		dir := "" // the first usable repository, so per-directory git identities apply
+		if j := slices.IndexFunc(m.repos, func(r repoState) bool { return r.cfg.Status == config.StatusOK }); j >= 0 {
+			dir = m.repos[j].cfg.Path
+		}
+		src := m.opts.Source
+		return start(m, &m.me, force, kind, -1, func(ctx context.Context) (gitx.Viewer, error) { return src.Viewer(ctx, dir) })
+	}
 	r := &m.repos[i]
 	if r.cfg.Status != config.StatusOK {
 		return nil

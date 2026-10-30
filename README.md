@@ -176,7 +176,7 @@ The header degrades to what the terminal can show:
 | `Esc`             | Close details, the comparison, the base selection or the filter            |
 | `/`               | Filter the current list (`Enter` applies, `Esc` cancels)                   |
 | `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout) |
-| `Ctrl+R`          | Refresh the current view                                                   |
+| `Ctrl+R`          | Refresh everything on screen now, including failed loads                   |
 | `?`               | Contextual shortcut help                                                   |
 | `F2`              | Toggle the dark and light themes                                           |
 | `d`               | Show a diff: on a pull request, its code changes; on a repository with uncommitted changes (Overview row, sidebar or Repository view), those changes in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
@@ -193,9 +193,10 @@ While the filter input is open, all typing and pasted text go to the input, not 
 - Only `status`, `log`, `for-each-ref`, `diff`, `ls-files` and `remote get-url` are run; `diff` uses `--no-ext-diff --no-textconv`, so a repository's own diff programs never run. There is no fetch, pull, checkout or tagging.
 - Pull requests are read with `gh pr list`, deployments with `gh api graphql` and deploy runs with `gh run list` (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.
-- Deploys is the only view that reloads by itself: every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.
+- Data on screen refreshes by itself when it is stale: local Git data after 5 seconds, GitHub data (pull requests, environments, deploys) after 1 minute, and your GitHub profile after 30 minutes. Staleness is checked on every key press, when you come back to the window, when it is resized, and on a 1-minute idle tick while the window is focused. The tick pauses while the window is in the background and after 10 minutes without a key press, so an open but unused window makes no `gh` calls. With the profile header shown, every repository's pull requests, commits and status count as on screen, since the header counts them; with it off, only the current view's data refreshes. The right of the tab bar says how old the data is (`Updated 3m ago`), or `Updating…` while a refresh runs; when the tabs need the room it shortens to `3m ago` (or `Just now`), then gives way.
+- Deploys also reloads every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.
 - Pictures in PR descriptions are drawn in the terminal in Ghostty and kitty (Kitty graphics protocol with Unicode placeholders), not inside tmux; other terminals, including WezTerm for now, show the picture's name instead. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded, up to 10 MB each. Your `gh` login token is sent to github.com only, because attachments in private repositories need it; it is not sent on to GitHub's storage host. Anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures; it draws generated ones.
-- A failed load is only retried when you press Ctrl+R; the status line shows a `ctrl+r retry` hint.
+- A failed load keeps the last good data on screen and retries by itself after 1, 2, 4 and 8 minutes, then every 10 minutes; Ctrl+R retries at once, and the status line shows a `ctrl+r retry` hint.
 - Loads run asynchronously. A refresh keeps the existing content visible, and results from superseded requests are discarded.
 - Text from Git (subjects, branch names, errors) has its control characters and escape sequences removed before display.
 
@@ -221,7 +222,7 @@ CI (`.github/workflows/ci.yml`) runs the lint and test checks plus a build on ev
 cmd/git-tui        entry point and flags
 internal/config      JSON config loading and per-repository validation
 internal/gitx        read-only git and gh runner, parsers, demo fixtures
-internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go), profile header (profile.go)
+internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go)
 internal/termimg     picture downloads, Kitty graphics, colour-block and character drawing
 scripts              screenshots.sh, behind mise run screenshots
 docs/images          README screenshots

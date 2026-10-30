@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -23,6 +24,13 @@ import (
 	"github.com/shaungsimpson/git-tui/internal/gitx"
 	"github.com/shaungsimpson/git-tui/internal/termimg"
 )
+
+// TestMain leaves out the idle refresh tick, which would make drain wait out its timeout in every test;
+// the refresh tests drive onRefresh directly.
+func TestMain(m *testing.M) {
+	refreshTick = func() tea.Cmd { return nil }
+	os.Exit(m.Run())
+}
 
 func demoOpts() Options {
 	o := Options{Source: gitx.Demo{}, Demo: true, Tools: map[string]string{"git": "/usr/bin/git"}}
@@ -59,8 +67,8 @@ func drain(m *Model, cmd tea.Cmd) {
 func setup(t *testing.T, o Options, w, h int) *Model {
 	t.Helper()
 	m := New(o)
-	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
-	drain(m, m.Init())
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	drain(m, tea.Batch(cmd, m.Init())) // as Bubble Tea would: a resize can start loads too
 	return m
 }
 
@@ -303,19 +311,135 @@ func TestShrinkingKeepsDetailFocusVisible(t *testing.T) {
 	}
 }
 
-func TestFailedLoadRetriesOnlyOnRefresh(t *testing.T) {
+// fakeClock moves the refresh cadence's clock for one test.
+func fakeClock(t *testing.T) *time.Time {
+	t.Helper()
+	now := time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC)
+	real := clock
+	clock = func() time.Time { return now }
+	t.Cleanup(func() { clock = real })
+	return &now
+}
+
+func TestFailedLoadBacksOff(t *testing.T) {
+	now := fakeClock(t)
 	m := setup(t, demoOpts(), 120, 30) // legacy-api (index 3) fails its summary
 	if m.repos[3].summary.err == nil {
 		t.Fatal("setup: legacy-api should have failed")
 	}
 	if cmd := m.load(3, kindSummary, false); cmd != nil {
-		t.Fatal("navigation must not retry a failed load")
+		t.Fatal("navigation must not retry a failure straight away")
 	}
 	if !strings.Contains(m.statusLine(), "ctrl+r") {
 		t.Fatal("status line should say how to retry")
 	}
+	*now = now.Add(time.Minute)
+	drain(m, m.load(3, kindSummary, false))
+	if m.repos[3].summary.fails != 2 {
+		t.Fatalf("after a minute the failure retries by itself; fails = %d", m.repos[3].summary.fails)
+	}
+	*now = now.Add(time.Minute)
+	if cmd := m.load(3, kindSummary, false); cmd != nil {
+		t.Fatal("a second failure waits two minutes")
+	}
 	if cmd := m.load(3, kindSummary, true); cmd == nil {
-		t.Fatal("refresh must retry a failed load")
+		t.Fatal("Ctrl+R retries at once")
+	}
+	if backoff(1) != time.Minute || backoff(3) != 4*time.Minute || backoff(9) != maxBackoff {
+		t.Fatalf("backoff: %v %v %v", backoff(1), backoff(3), backoff(9))
+	}
+}
+
+func TestStaleDataReloadsOnKeys(t *testing.T) {
+	now := fakeClock(t)
+	src := &countingSource{}
+	o := demoOpts()
+	o.Source = src
+	m := setup(t, o, 120, 30)
+	press(m, "g", "a")
+	calls := src.calls.Load()
+	press(m, "j")
+	if src.calls.Load() != calls {
+		t.Fatal("fresh commits are not reloaded on a key")
+	}
+	*now = now.Add(localAge)
+	press(m, "k")
+	if src.calls.Load() == calls {
+		t.Fatal("commits older than the local floor reload on the next key")
+	}
+	if got := m.freshness(); got != "Updated just now" {
+		t.Fatalf("freshness: %q", got)
+	}
+	*now = now.Add(3 * time.Minute)
+	if got := m.freshness(); got != "Updated 3m ago" {
+		t.Fatalf("freshness after 3 minutes: %q", got)
+	}
+	m.repos[0].prs = slot[[]gitx.PR]{loaded: true, at: clock()}
+	press(m, "g", "p")
+	m.repos[0].prs.loading = true
+	if got := m.freshness(); got != "Updating…" {
+		t.Fatalf("freshness while loading: %q", got)
+	}
+}
+
+func TestGitHubDataWaitsAMinute(t *testing.T) {
+	now := fakeClock(t)
+	m := setup(t, demoOpts(), 120, 30)
+	press(m, "g", "p")
+	if m.load(0, kindPRs, false) != nil {
+		t.Fatal("PRs loaded just now are fresh")
+	}
+	*now = now.Add(30 * time.Second)
+	if m.load(0, kindPRs, false) != nil {
+		t.Fatal("PRs stay fresh for a minute")
+	}
+	*now = now.Add(30 * time.Second)
+	if m.load(0, kindPRs, false) == nil {
+		t.Fatal("PRs a minute old reload")
+	}
+}
+
+func TestIdleTickFollowsFocusAndUse(t *testing.T) {
+	now := fakeClock(t)
+	m := setup(t, demoOpts(), 120, 30)
+	m.ticking = true // as scheduled by Init
+
+	m.Update(tea.BlurMsg{})
+	if cmd := m.onRefresh(); cmd != nil || m.ticking {
+		t.Fatal("the tick stops while the window is in the background")
+	}
+	*now = now.Add(5 * time.Minute)
+	if _, cmd := m.Update(tea.FocusMsg{}); cmd == nil || !m.ticking {
+		t.Fatal("coming back refreshes what is stale and restarts the tick")
+	}
+	if !m.lastUse.Equal(*now) {
+		t.Fatal("coming back counts as use")
+	}
+
+	*now = now.Add(idleAfter)
+	if cmd := m.onRefresh(); cmd != nil || m.ticking {
+		t.Fatal("after ten minutes without a key the tick stops, even while focused")
+	}
+	press(m, "j")
+	if !m.ticking {
+		t.Fatal("a key restarts the tick")
+	}
+	if !New(demoOpts()).focused {
+		t.Fatal("a terminal that never reports focus counts as focused")
+	}
+}
+
+func TestHiddenHeaderLoadsOnlyTheView(t *testing.T) {
+	o := demoOpts()
+	o.Profile = ProfileFull
+	m := setup(t, o, 120, 30)
+	press(m, "g", "t") // Tags with no repository selected wants nothing of its own
+	if !slices.Contains(m.wanted(), want{-1, kindViewer}) || !slices.Contains(m.wanted(), want{0, kindPRs}) {
+		t.Fatal("the header refreshes the viewer and every repository's PRs")
+	}
+	press(m, "b", "b", "b") // ascii, text, off
+	if got := m.wanted(); len(got) != 0 {
+		t.Fatalf("with the header off only the view's data refreshes, got %v", got)
 	}
 }
 
@@ -622,7 +746,7 @@ func TestPullRequestPictures(t *testing.T) {
 	m := setup(t, o, 140, 40)
 	m.repos[0].prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "UI change", URL: "https://github.com/o/r/pull/1",
 		Body: "Before:\n![before](https://github.com/user-attachments/assets/aaa)\n<img src=\"https://evil.example/track.png\">"}}
-	m.repos[0].prs.loaded = true
+	m.repos[0].prs.loaded, m.repos[0].prs.at = true, clock() // fresh, so the cadence keeps these PRs
 	m.selectRepo(1)
 	press(m, "g", "p")
 	if len(fetched) != 1 || fetched[0] != "https://github.com/user-attachments/assets/aaa" {
@@ -677,7 +801,7 @@ func TestPullRequestPictureError(t *testing.T) {
 	m := setup(t, o, 140, 40)
 	m.repos[0].prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "x",
 		Body: `<img alt="shot" src="https://github.com/user-attachments/assets/aaa">`}}
-	m.repos[0].prs.loaded = true
+	m.repos[0].prs.loaded, m.repos[0].prs.at = true, clock() // fresh, so the cadence keeps these PRs
 	m.selectRepo(1)
 	press(m, "g", "p")
 	if detail := strings.Join(m.detailLines(), "\n"); !strings.Contains(detail, "[image: shot · not shown: HTTP 404]") {
@@ -1000,6 +1124,9 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if m.avatar.img == nil || !strings.ContainsRune(m.avatarArt(false)[0], kitty.Placeholder) {
 		t.Fatal("demo should draw an avatar picture")
 	}
+	if !strings.Contains(ansi.Strip(m.header()), "Just now") { // shortened at 140 columns to keep every tab
+		t.Fatal("demo should show how fresh its data is")
+	}
 
 	press(m, "g", "p")
 	colours := map[any]bool{}
@@ -1008,6 +1135,12 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	}
 	if len(colours) < 3 {
 		t.Fatalf("demo authors should show several author colours, got %d", len(colours))
+	}
+	for url, st := range m.pics { // a fetch drain gave up on under -race; finish it here, through the same demo source
+		if st.loading {
+			pic, err := fetchPic(context.Background(), m.opts.Source, url, picBase+99)
+			m.Update(picMsg{url, pic, err})
+		}
 	}
 	if !strings.ContainsRune(strings.Join(m.detailLines(), ""), kitty.Placeholder) {
 		t.Fatal("demo PRs should draw their pictures")
@@ -1099,5 +1232,66 @@ func TestStackedRowsGiveTheTitleItsOwnLine(t *testing.T) {
 	cut := titled(long, seg{"Title  ", m.st.text}, seg{"renovate[bot]", m.st.muted}, true, 50)
 	if fits[1].s != "bob" || fits[2].s != brk.s || cut[1].s != brk.s || cut[3].s != "renovate[bot]" {
 		t.Fatalf("author placement: fits %v, too long %v", fits, cut)
+	}
+}
+
+func TestHeaderKeepsTabsBeforeTheAge(t *testing.T) {
+	m := setup(t, demoOpts(), 200, 30)
+	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "Updated just now") {
+		t.Fatalf("a wide header has every tab and the full age: %q", h)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "Just now") {
+		t.Fatalf("at 140 columns the tabs stay and the age shortens: %q", h)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	if h := ansi.Strip(m.header()); strings.Contains(h, "Connections") || !strings.Contains(h, "Updated just now") {
+		t.Fatalf("when the tabs cannot fit anyway, the full age shows: %q", h)
+	}
+}
+
+// compareCounter counts commit-list loads.
+type compareCounter struct {
+	gitx.Demo
+	calls atomic.Int32
+}
+
+func (c *compareCounter) Compare(ctx context.Context, repo, dir, base, head string) ([]gitx.Commit, error) {
+	c.calls.Add(1)
+	return c.Demo.Compare(ctx, repo, dir, base, head)
+}
+
+func TestOpenCommitListRefreshes(t *testing.T) {
+	now := fakeClock(t)
+	src := &compareCounter{}
+	o := demoOpts()
+	o.Source = src
+	m := setup(t, o, 140, 40)
+	press(m, "shift+tab", "j", "tab", "g", "e", "enter") // "Not yet in" list for backend's newest environment
+	if !m.cmpOpen() || src.calls.Load() != 1 {
+		t.Fatalf("setup: list open %v, loads %d", m.cmpOpen(), src.calls.Load())
+	}
+	press(m, "j")
+	if src.calls.Load() != 1 {
+		t.Fatal("a fresh list is not reloaded on a key")
+	}
+	*now = now.Add(localAge)
+	if got := m.freshness(); got != "Updated just now" {
+		t.Fatalf("freshness: %q", got)
+	}
+	m.cmp.res.at = now.Add(-2 * time.Minute) // the list is older than everything else on screen
+	if got := m.freshness(); got != "Updated 2m ago" {
+		t.Fatalf("the open list counts toward the age: %q", got)
+	}
+	press(m, "k")
+	if src.calls.Load() != 2 {
+		t.Fatalf("a stale list reloads on the next key, like other git data; loads %d", src.calls.Load())
+	}
+}
+
+func TestTimesOfAnUnlistedKindAreZero(t *testing.T) {
+	m := setup(t, demoOpts(), 120, 30)
+	if at, loading := m.times(want{0, kindDiff}); !at.IsZero() || loading {
+		t.Fatalf("a kind times() does not list reports nothing, got %v %v", at, loading)
 	}
 }

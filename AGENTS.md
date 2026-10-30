@@ -19,9 +19,10 @@ A pull request is ready when all of these hold. CI checks the first two; reviewe
 - **Network only through GitHub.** Data comes from `gh`. Pictures come only from hosts in `termimg.Allowed`, and the login token goes to github.com only. Demo mode makes no network calls.
 - **External text is untrusted.** Pass anything from Git, GitHub or a config file through `clean()` before it is drawn, and only open https links.
 - **External commands are bounded.** Argument arrays, never a shell string; every call has a timeout (`command` in `internal/gitx`).
-- **Loads are asynchronous and superseded results are dropped.** Use the `slot`, `start` and `finish` pattern in `internal/ui/model.go`. A failed load keeps the old content and retries only on Ctrl+R.
+- **Loads are asynchronous and superseded results are dropped.** Use the `slot`, `start` and `finish` pattern in `internal/ui/model.go`. A failed load keeps the old content and retries with a backoff (1, 2, 4, 8, then every 10 minutes), or at once on Ctrl+R.
 - **Degrade gracefully.** Detect what the terminal and environment can do and fall back step by step: a Kitty picture, then colour blocks, then characters, then text; panes that collapse as the window narrows; working local views without `gh` or a config file. Never crash or show a blank screen because something is missing.
 - **One source of truth for keys.** Every shortcut is a row in the `actions` table in `internal/ui/keys.go`, which drives dispatch, help and the footer.
+- **Refresh only what is on screen and stale.** `wanted` in `internal/ui/refresh.go` lists the data on screen, and `ageOf` sets how long each kind stays fresh. New data joins that list and picks a tier; do not add timers of your own.
 - **Every frame fits.** Rendered lines never exceed the terminal width or height; `TestRenderFitsTerminal` checks the common sizes.
 
 ## Code and writing style

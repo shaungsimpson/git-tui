@@ -13,7 +13,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
 	"github.com/shaungsimpson/git-tui/internal/termimg"
 )
@@ -105,28 +104,6 @@ func (m *Model) cycleProfile() tea.Cmd {
 	}
 	m.clampAll()
 	return tea.Batch(m.ensure(false), m.ensureAvatar())
-}
-
-// profileLoads starts what the header counts: the viewer, and every repository's PRs, commits and status.
-// A refresh skips slots already loading, so it never cancels the view's own requests for the same data.
-func (m *Model) profileLoads(force bool) []tea.Cmd {
-	if m.profile == ProfileOff {
-		return nil
-	}
-	dir := ""
-	if i := slices.IndexFunc(m.repos, func(r repoState) bool { return r.cfg.Status == config.StatusOK }); i >= 0 {
-		dir = m.repos[i].cfg.Path
-	}
-	src := m.opts.Source
-	cmds := []tea.Cmd{start(m, &m.me, force, kindViewer, -1, func(ctx context.Context) (gitx.Viewer, error) {
-		return src.Viewer(ctx, dir)
-	})}
-	for i := range m.repos {
-		r := &m.repos[i]
-		cmds = append(cmds, m.load(i, kindPRs, force && !r.prs.loading), m.load(i, kindLog, force && !r.log.loading),
-			m.load(i, kindSummary, force && !r.summary.loading))
-	}
-	return cmds
 }
 
 // ensureAvatar downloads the viewer's picture once per address. With Kitty graphics the picture is also
