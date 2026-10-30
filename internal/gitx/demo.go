@@ -28,6 +28,12 @@ var demoSubjects = []string{
 	"Tidy release notes template",
 }
 
+var demoBodies = []string{
+	"",
+	"The previous fix was off by one, in the other direction.\n\n* Count from zero this time\n* Add a regression test so it stays fixed",
+	"Requested by the team that needed it yesterday so changes can be traced back to a person.",
+}
+
 var demoAuthors = []string{"Alice", "Bob", "Chuck", "Dave"}
 
 func demoErr(repo string) error {
@@ -48,6 +54,7 @@ func demoCommits(repo string, n, offset int) []Commit {
 			Author:  demoAuthors[(seed+k)%len(demoAuthors)],
 			When:    demoBase.Add(-time.Duration(k*seed+k*3) * time.Hour),
 			Subject: demoSubjects[(seed+k)%len(demoSubjects)],
+			Body:    demoBodies[k%len(demoBodies)],
 		})
 	}
 	return commits
@@ -96,4 +103,31 @@ func (Demo) Compare(_ context.Context, repo, _, base, head string) ([]Commit, er
 		return nil, nil
 	}
 	return demoCommits(repo, (h-b)*4, (9-h)*4), nil
+}
+
+func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
+	if err := demoErr(repo); err != nil {
+		return nil, err
+	}
+	reviews := []string{"APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", ""}
+	checks := []CheckState{ChecksPassing, ChecksFailing, ChecksPending, ChecksNone}
+	authors := []string{"alice", "bob", "chuck", "dave"}
+	seed := len(repo)
+	var prs []PR
+	for i := range seed%4 + 2 {
+		k := seed + i
+		prs = append(prs, PR{
+			Repo:    repo,
+			Number:  400 + seed*10 + i,
+			Title:   demoSubjects[k%len(demoSubjects)],
+			Author:  authors[k%len(authors)],
+			Branch:  fmt.Sprintf("feature/demo-%d", i+1),
+			URL:     fmt.Sprintf("https://github.com/example/%s/pull/%d", repo, 400+seed*10+i),
+			Draft:   i == 3,
+			Review:  reviews[k%len(reviews)],
+			Checks:  checks[k%len(checks)],
+			Updated: demoBase.Add(-time.Duration(k*5) * time.Hour),
+		})
+	}
+	return prs, nil
 }

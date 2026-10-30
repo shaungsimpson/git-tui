@@ -55,8 +55,9 @@ var goKeys = []struct {
 }{
 	{"o", viewOverview},
 	{"a", viewActivity},
+	{"p", viewPRs},
 	{"r", viewRepo},
-	{"t", viewReleases},
+	{"t", viewTags},
 	{"c", viewConnections},
 }
 

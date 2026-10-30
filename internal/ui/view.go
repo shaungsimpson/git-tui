@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -298,6 +299,65 @@ func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 		seg{clean(c.Author), m.st.muted})
 }
 
+var checkText = map[gitx.CheckState]string{
+	gitx.ChecksNone: "no checks", gitx.ChecksPassing: "passing", gitx.ChecksPending: "pending", gitx.ChecksFailing: "failing",
+}
+
+func (m *Model) checkStyle(c gitx.CheckState) lipgloss.Style {
+	switch c {
+	case gitx.ChecksPassing:
+		return m.st.ok
+	case gitx.ChecksPending:
+		return m.st.warn
+	case gitx.ChecksFailing:
+		return m.st.bad
+	}
+	return m.st.muted
+}
+
+// reviewText is the short review label and its style; drafts are not ready for review yet.
+func (m *Model) reviewText(p gitx.PR) (string, lipgloss.Style) {
+	switch {
+	case p.Draft:
+		return "draft", m.st.muted
+	case p.Review == "APPROVED":
+		return "approved", m.st.ok
+	case p.Review == "CHANGES_REQUESTED":
+		return "changes", m.st.bad
+	case p.Review == "REVIEW_REQUIRED":
+		return "review", m.st.warn
+	}
+	return "-", m.st.muted
+}
+
+func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
+	glyph := map[gitx.CheckState]string{gitx.ChecksNone: " ", gitx.ChecksPassing: "·", gitx.ChecksPending: "…", gitx.ChecksFailing: "!"}[p.Checks]
+	review, rst := m.reviewText(p)
+	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}}
+	if showRepo {
+		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
+	}
+	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.muted}, seg{pad(review, 8), rst})
+	if w >= 70 {
+		segs = append(segs, seg{p.Updated.Local().Format(dateFmt) + "  ", m.st.muted})
+	}
+	return append(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.st.muted})
+}
+
+func (m *Model) prDetail(p gitx.PR) []string {
+	review, rst := m.reviewText(p)
+	return []string{
+		" " + m.st.text.Bold(true).Render(clean(p.Title)),
+		m.kv("PR", "#"+strconv.Itoa(p.Number)+" in "+clean(p.Repo), m.st.accent),
+		m.kv("Author", clean(p.Author), m.st.text),
+		m.kv("Branch", clean(p.Branch), m.st.text),
+		m.kv("Review", review, rst),
+		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
+		m.kv("Updated", p.Updated.Local().Format(dateFmt), m.st.text),
+		m.kv("Link", clean(p.URL), m.st.muted),
+	}
+}
+
 // mainContent returns the pane title and a row builder for the current list.
 func (m *Model) mainContent(w int) (string, func(int) []seg) {
 	filter := ""
@@ -315,17 +375,22 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 		return fmt.Sprintf("Activity · %s · %d commits%s", m.repoLabel(), len(cs), filter), func(i int) []seg {
 			return m.commitSegs(cs[i], w, m.repo == 0)
 		}
+	case viewPRs:
+		prs := m.prList()
+		return fmt.Sprintf("Pull requests · %s · %d open%s", m.repoLabel(), len(prs), filter), func(i int) []seg {
+			return m.prSegs(prs[i], w, m.repo == 0)
+		}
 	case viewRepo:
 		cs := m.repoCommits()
 		return "Repository · " + m.repoLabel() + filter, func(i int) []seg { return m.commitSegs(cs[i], w, false) }
-	case viewReleases:
+	case viewTags:
 		if m.cmp.open {
 			cs := m.cmp.res.val
 			title := fmt.Sprintf("Commits between %s and %s · %d commits", clean(m.cmp.base), clean(m.cmp.head), len(cs))
 			return title, func(i int) []seg { return m.commitSegs(cs[i], w, false) }
 		}
 		tags := m.tagList()
-		title := "Releases · " + m.repoLabel() + filter
+		title := "Tags · " + m.repoLabel() + filter
 		if m.cmp.base != "" {
 			title += " · base " + clean(m.cmp.base)
 		}
@@ -423,12 +488,21 @@ func (m *Model) emptyMessage() (string, lipgloss.Style) {
 			return "Could not read history: " + h.errs[0], m.st.bad
 		}
 		return "No commits found.", m.st.muted
+	case viewPRs:
+		h := m.health()
+		if h.loading > 0 {
+			return "Loading pull requests from GitHub…", m.st.muted
+		}
+		if len(h.errs) > 0 {
+			return "Could not read pull requests: " + h.errs[0], m.st.bad
+		}
+		return "No open pull requests.", m.st.muted
 	case viewRepo:
 		if msg, st, ok := needRepo(); ok {
 			return msg, st
 		}
 		return slotMessage(m, &m.selected().log, "Loading commits…", "No commits yet.")
-	case viewReleases:
+	case viewTags:
 		if msg, st, ok := needRepo(); ok {
 			return msg, st
 		}
@@ -510,14 +584,21 @@ func (m *Model) repoInfo() []string {
 }
 
 func (m *Model) commitDetail(c gitx.Commit) []string {
-	return []string{
+	lines := []string{
 		m.kv("Commit", c.Hash, m.st.accent),
 		m.kv("Repo", clean(c.Repo), m.st.text),
 		m.kv("Author", clean(c.Author), m.st.text),
 		m.kv("Date", c.When.Local().Format(dateFmt), m.st.text),
 		"",
-		" " + clean(c.Subject),
+		" " + m.st.text.Bold(true).Render(clean(c.Subject)),
 	}
+	if c.Body != "" {
+		lines = append(lines, "")
+		for _, l := range strings.Split(c.Body, "\n") {
+			lines = append(lines, " "+clean(l)) // clean per line so the body keeps its line breaks
+		}
+	}
+	return lines
 }
 
 func (m *Model) detailLines() []string {
@@ -532,9 +613,11 @@ func (m *Model) detailLines() []string {
 		return append([]string{" " + m.st.text.Bold(true).Render(clean(r.cfg.Name))}, m.summaryLines(r)...)
 	case viewActivity:
 		return m.commitDetail(m.activity()[i])
+	case viewPRs:
+		return m.prDetail(m.prList()[i])
 	case viewRepo:
 		return m.commitDetail(m.repoCommits()[i])
-	case viewReleases:
+	case viewTags:
 		if m.cmp.open {
 			return m.commitDetail(m.cmp.res.val[i])
 		}
@@ -635,12 +718,16 @@ func (m *Model) health() health {
 		for _, i := range m.scope() {
 			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].log)
 		}
+	case viewPRs:
+		for _, i := range m.scope() {
+			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].prs)
+		}
 	case viewRepo:
 		if r := m.selected(); r != nil {
 			addHealth(&h, r.cfg.Name, &r.summary)
 			addHealth(&h, r.cfg.Name, &r.log)
 		}
-	case viewReleases:
+	case viewTags:
 		if r := m.selected(); r != nil {
 			addHealth(&h, r.cfg.Name, &r.tags)
 			addHealth(&h, r.cfg.Name, &m.cmp.res)

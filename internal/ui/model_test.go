@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -170,7 +171,7 @@ func TestFilterInputConsumesKeys(t *testing.T) {
 func TestGoSequenceTimeoutAndReset(t *testing.T) {
 	m := setup(t, demoOpts(), 120, 30)
 	press(m, "g", "t")
-	if m.view != viewReleases || m.pendingG {
+	if m.view != viewTags || m.pendingG {
 		t.Fatalf("g t: view %v pending %v", m.view, m.pendingG)
 	}
 
@@ -181,7 +182,7 @@ func TestGoSequenceTimeoutAndReset(t *testing.T) {
 		t.Fatal("expiry should clear the pending sequence")
 	}
 	press(m, "o")
-	if m.view != viewReleases {
+	if m.view != viewTags {
 		t.Fatal("o after expiry must not navigate")
 	}
 
@@ -225,7 +226,7 @@ func TestStaleResultsDropped(t *testing.T) {
 	}
 
 	// A comparison started for one repository is ignored after switching to another.
-	m.view = viewReleases
+	m.view = viewTags
 	m.cmp = compareState{repo: m.repo, base: "v1.7.0", head: "v1.9.0", open: true}
 	stale := m.loadCompare()()
 	m.selectRepo(2)
@@ -236,6 +237,15 @@ func TestStaleResultsDropped(t *testing.T) {
 }
 
 func TestSelectionSurvivesReorder(t *testing.T) {
+	top := setup(t, demoOpts(), 120, 30)
+	top.view = viewActivity
+	a, b := top.load(0, kindLog, false), top.load(1, kindLog, false)
+	top.Update(b()) // frontend first; backend's rows then sort above it
+	top.Update(a())
+	if top.cursor[viewActivity] != 0 {
+		t.Fatalf("an untouched cursor should stay on the newest row, got %d", top.cursor[viewActivity])
+	}
+
 	m := setup(t, demoOpts(), 120, 30)
 	m.view = viewActivity
 	first, second := m.load(0, kindLog, false), m.load(1, kindLog, false)
@@ -254,14 +264,14 @@ func TestSelectionSurvivesReorder(t *testing.T) {
 func TestEscHintOnlyWhereItActs(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	m.selectRepo(1)
-	drain(m, m.setView(viewReleases))
+	drain(m, m.setView(viewTags))
 	press(m, "enter")
 	if m.cmp.base == "" || !m.canBack() {
-		t.Fatal("releases with a base should offer esc")
+		t.Fatal("tags with a base should offer esc")
 	}
 	press(m, "g", "a")
 	if m.canBack() {
-		t.Fatal("esc must not be offered on Activity for Releases state")
+		t.Fatal("esc must not be offered on Activity for Tags state")
 	}
 }
 
@@ -297,6 +307,40 @@ func TestFailedLoadRetriesOnlyOnRefresh(t *testing.T) {
 	}
 }
 
+func TestPullRequestsViewAndConnection(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	github := func() connRow { return m.githubRow() }
+	if github().state != "not checked yet" {
+		t.Fatalf("before loading: %q", github().state)
+	}
+	m.view = viewPRs
+	first, second := m.load(0, kindPRs, false), m.load(1, kindPRs, false)
+	m.Update(first())
+	m.cursor[viewPRs] = 1
+	want := m.prList()[1]
+	m.Update(second()) // newer PRs from another repository sort above the selection
+	if got := m.prList()[m.cursor[viewPRs]]; got.Repo != want.Repo || got.Number != want.Number {
+		t.Fatalf("selection moved from %s#%d to %s#%d", want.Repo, want.Number, got.Repo, got.Number)
+	}
+	if github().state != "available" {
+		t.Fatalf("after loading: %q", github().state)
+	}
+	drain(m, m.load(3, kindPRs, false)) // legacy-api fixture fails
+	if github().level != levelWarn || !strings.Contains(m.render(), "Pull requests") {
+		t.Fatalf("failure not reported: %+v", github())
+	}
+	press(m, "/", "#", "4", "7")
+	got := m.prList()
+	if len(got) == 0 || len(got) == len(m.repos[0].prs.val)+len(m.repos[1].prs.val) {
+		t.Fatalf("filter #47 kept %d rows", len(got))
+	}
+	for _, p := range got {
+		if !strings.HasPrefix("#"+strconv.Itoa(p.Number), "#47") {
+			t.Fatalf("filter let through #%d", p.Number)
+		}
+	}
+}
+
 func TestRefreshKeepsContentOnError(t *testing.T) {
 	m := setup(t, demoOpts(), 120, 30)
 	m.selectRepo(1)
@@ -309,10 +353,10 @@ func TestRefreshKeepsContentOnError(t *testing.T) {
 	}
 }
 
-func TestReleaseComparison(t *testing.T) {
+func TestTagComparison(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	press(m, "tab", "tab", "j", "tab", "g", "t")
-	if m.repo != 1 || m.view != viewReleases || m.focus != paneMain {
+	if m.repo != 1 || m.view != viewTags || m.focus != paneMain {
 		t.Fatalf("setup: repo %d view %v focus %v", m.repo, m.view, m.focus)
 	}
 	press(m, "j", "j", "enter", "k", "k", "enter")

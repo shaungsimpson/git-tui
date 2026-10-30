@@ -41,10 +41,15 @@ func TestParseStatusDetachedInitial(t *testing.T) {
 }
 
 func TestParseLogSkipsMalformed(t *testing.T) {
-	out := "h1\x1fAnn\x1f2026-01-02T03:04:05+10:00\x1fFirst\x1e\nbroken\x1e\nh2\x1fBo\x1f2026-01-01T00:00:00Z\x1fSecond\x1e\n"
+	out := "h1\x1fAnn\x1f2026-01-02T03:04:05+10:00\x1fFirst\x1fBody line\n\n* item\x1fwith separator\n\x00" +
+		"broken\x00" +
+		"h2\x1fBo\x1f2026-01-01T00:00:00Z\x1fSecond\x1f\x00"
 	c := ParseLog("r", out)
 	if len(c) != 2 || c[0].Subject != "First" || c[1].Hash != "h2" || c[0].When.IsZero() {
 		t.Fatalf("%+v", c)
+	}
+	if c[0].Body != "Body line\n\n* item\x1fwith separator" || c[1].Body != "" {
+		t.Fatalf("bodies %q / %q", c[0].Body, c[1].Body)
 	}
 }
 
@@ -77,7 +82,7 @@ func gitRepo(t *testing.T) string {
 	run("commit", "-q", "--allow-empty", "-m", "a")
 	run("tag", "-a", "v1", "-m", "Release 1")
 	run("commit", "-q", "--allow-empty", "-m", "b")
-	run("commit", "-q", "--allow-empty", "-m", "c")
+	run("commit", "-q", "--allow-empty", "-m", "c", "-m", "Why c exists.\n\n* detail one")
 	run("tag", "v2")
 	return dir
 }
@@ -106,6 +111,9 @@ func TestGitAgainstTempRepo(t *testing.T) {
 	}
 	if len(commits) != 2 || commits[0].Subject != "c" || commits[1].Subject != "b" {
 		t.Fatalf("compare %+v", commits)
+	}
+	if commits[0].Body != "Why c exists.\n\n* detail one" || commits[1].Body != "" {
+		t.Fatalf("bodies %q / %q", commits[0].Body, commits[1].Body)
 	}
 
 	if _, err := g.Log(ctx, "tmp", t.TempDir(), 5); err == nil {

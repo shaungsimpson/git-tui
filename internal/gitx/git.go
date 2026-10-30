@@ -1,4 +1,4 @@
-// Package gitx reads repository state through the installed git executable. Every call is read-only.
+// Package gitx reads repository state through the installed git and gh executables. Every call is read-only.
 package gitx
 
 import (
@@ -19,6 +19,7 @@ type Commit struct {
 	Author  string
 	When    time.Time
 	Subject string
+	Body    string // message after the subject line, empty for one-line messages
 }
 
 // Tag is a tag pointing (possibly via an annotated tag object) at a commit.
@@ -55,23 +56,30 @@ type Source interface {
 	Log(ctx context.Context, repo, dir string, n int) ([]Commit, error)
 	Tags(ctx context.Context, repo, dir string) ([]Tag, error)
 	Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error)
+	PullRequests(ctx context.Context, repo, dir string) ([]PR, error)
 }
 
-// Git runs the git executable with a per-call timeout.
+// Git runs the git (and, for pull requests, gh) executables with a per-call timeout.
 type Git struct {
 	Timeout time.Duration
 }
 
-const logFormat = "--format=%H%x1f%an%x1f%aI%x1f%s%x1e"
+// logFormat is used with -z: records end in NUL, which git never allows inside a commit message.
+const logFormat = "--format=%H%x1f%an%x1f%aI%x1f%s%x1f%b"
 
 func (g Git) run(ctx context.Context, dir string, args ...string) (string, error) {
 	timeout := g.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
+	return command(ctx, dir, timeout, "git", args...)
+}
+
+// command runs a read-only tool in dir and returns stdout, or stderr as the error.
+func command(ctx context.Context, dir string, timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	// No credential prompts, no index refresh writes, stable output.
 	cmd.Env = gitEnv(os.Environ())
@@ -79,13 +87,13 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("git %s timed out after %s", args[0], timeout)
+			return "", fmt.Errorf("%s %s timed out after %s", name, args[0], timeout)
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("git %s: %s", args[0], msg)
+		return "", fmt.Errorf("%s %s: %s", name, args[0], msg)
 	}
 	return stdout.String(), nil
 }
@@ -110,7 +118,7 @@ func (g Git) Summary(ctx context.Context, repo, dir string) (Summary, error) {
 }
 
 func (g Git) Log(ctx context.Context, repo, dir string, n int) ([]Commit, error) {
-	out, err := g.run(ctx, dir, "log", "-n", strconv.Itoa(n), logFormat)
+	out, err := g.run(ctx, dir, "log", "-z", "-n", strconv.Itoa(n), logFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +136,7 @@ func (g Git) Tags(ctx context.Context, repo, dir string) ([]Tag, error) {
 
 // Compare lists commits reachable from head but not from base.
 func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error) {
-	out, err := g.run(ctx, dir, "log", logFormat, "refs/tags/"+base+"..refs/tags/"+head, "--")
+	out, err := g.run(ctx, dir, "log", "-z", logFormat, "refs/tags/"+base+"..refs/tags/"+head, "--")
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +144,7 @@ func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commi
 }
 
 // gitEnv drops inherited GIT_* variables (GIT_DIR would point every repository at one repo),
-// then disables prompts and optional index writes.
+// then disables git and gh prompts and optional index writes.
 func gitEnv(env []string) []string {
 	out := make([]string, 0, len(env)+3)
 	for _, kv := range env {
@@ -144,19 +152,19 @@ func gitEnv(env []string) []string {
 			out = append(out, kv)
 		}
 	}
-	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	return append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GH_PROMPT_DISABLED=1", "LC_ALL=C")
 }
 
 // ParseLog parses output produced with logFormat.
 func ParseLog(repo, out string) []Commit {
 	var commits []Commit
-	for _, rec := range strings.Split(out, "\x1e") {
-		f := strings.Split(strings.TrimSpace(rec), "\x1f")
-		if len(f) != 4 {
+	for _, rec := range strings.Split(out, "\x00") {
+		f := strings.SplitN(rec, "\x1f", 5) // the body is last, so anything inside it stays in the body
+		if len(f) != 5 {
 			continue
 		}
 		when, _ := time.Parse(time.RFC3339, f[2])
-		commits = append(commits, Commit{Repo: repo, Hash: f[0], Author: f[1], When: when, Subject: f[3]})
+		commits = append(commits, Commit{Repo: repo, Hash: f[0], Author: f[1], When: when, Subject: f[3], Body: strings.TrimSpace(f[4])})
 	}
 	return commits
 }

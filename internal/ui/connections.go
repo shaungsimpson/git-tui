@@ -82,17 +82,48 @@ func (m *Model) connections() []connRow {
 		rows = append(rows, row)
 	}
 
-	gh := []string{"Pull requests and check status are not shown yet. This integration is planned."}
-	if p, ok := m.tool("gh"); ok {
-		gh = append(gh, "gh found at "+clean(p)+". Authentication has not been checked.")
-	} else {
-		gh = append(gh, "To prepare: install the GitHub CLI and run `gh auth login`.")
-	}
-	rows = append(rows, connRow{"-", "GitHub (PRs, checks)", "not configured", levelOff, gh})
+	rows = append(rows, m.githubRow())
 
 	rows = append(rows, connRow{"-", "Deployment environments", "not configured", levelOff, []string{
 		"Deployed revisions are not shown because no source of truth is configured.",
 		"Nothing here is inferred from tags or branches.",
 	}})
 	return rows
+}
+
+// githubRow reports gh from what the Pull requests view has actually loaded; nothing is checked from here.
+func (m *Model) githubRow() connRow {
+	const name = "GitHub (pull requests)"
+	p, ok := m.tool("gh")
+	if !ok && !m.opts.Demo {
+		return connRow{"!", name, "gh not found", levelWarn, []string{
+			"Pull requests are read with the GitHub CLI.",
+			"Install it (brew install gh), run `gh auth login`, then press Ctrl+R in Pull requests.",
+		}}
+	}
+	loaded := 0
+	var errs []string
+	for _, r := range m.repos {
+		if r.prs.loaded {
+			loaded++
+		}
+		if r.prs.err != nil {
+			errs = append(errs, clean(r.cfg.Name)+": "+clean(r.prs.err.Error()))
+		}
+	}
+	source := "gh found at " + clean(p) + "."
+	if m.opts.Demo {
+		source = "Demo mode: pull requests are fixtures."
+	}
+	switch {
+	case len(errs) > 0:
+		detail := append([]string{source, "Some repositories could not be read:", ""}, errs...)
+		return connRow{"!", name, fmt.Sprintf("%d failed", len(errs)), levelWarn, append(detail, "",
+			"Check `gh auth status` and that origin points at github.com, then press Ctrl+R in Pull requests.")}
+	case loaded > 0:
+		return connRow{"·", name, "available", levelOK, []string{source,
+			fmt.Sprintf("Open pull requests read for %d repositories with `gh pr list` (read-only).", loaded)}}
+	}
+	return connRow{"-", name, "not checked yet", levelOff, []string{source,
+		"Open the Pull requests view (g p) to read open pull requests and their checks."}}
 }

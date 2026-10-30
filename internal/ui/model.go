@@ -4,6 +4,7 @@ package ui
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,13 +21,14 @@ type viewID int
 const (
 	viewOverview viewID = iota
 	viewActivity
+	viewPRs
 	viewRepo
-	viewReleases
+	viewTags
 	viewConnections
 	viewCount
 )
 
-var viewNames = [viewCount]string{"Overview", "Activity", "Repository", "Releases", "Connections"}
+var viewNames = [viewCount]string{"Overview", "Activity", "Pull requests", "Repository", "Tags", "Connections"}
 
 type paneID int
 
@@ -55,6 +57,7 @@ type repoState struct {
 	summary slot[gitx.Summary]
 	log     slot[[]gitx.Commit]
 	tags    slot[[]gitx.Tag]
+	prs     slot[[]gitx.PR]
 }
 
 type dataKind int
@@ -63,6 +66,7 @@ const (
 	kindSummary dataKind = iota
 	kindLog
 	kindTags
+	kindPRs
 	kindCompare
 )
 
@@ -75,7 +79,7 @@ type resultMsg struct {
 
 type seqExpiredMsg struct{ gen int }
 
-// compareState is the Releases flow: pick a base tag, then a head tag, then browse commits between them.
+// compareState is the Tags flow: pick a base tag, then a head tag, then browse commits between them.
 type compareState struct {
 	repo       int
 	base, head string
@@ -340,7 +344,7 @@ func (m *Model) selectRepo(i int) {
 	m.repo = i
 	m.cancelCompare()
 	m.cmp = compareState{res: slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}}
-	for _, v := range []viewID{viewActivity, viewRepo, viewReleases} {
+	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags} {
 		m.cursor[v], m.offset[v] = 0, 0
 	}
 	m.detOff = 0
@@ -380,7 +384,7 @@ func (m *Model) open() tea.Cmd {
 		rows := m.overviewRows()
 		m.selectRepo(rows[*cur] + 1)
 		return m.setView(viewRepo)
-	case m.view == viewReleases && !m.cmp.open:
+	case m.view == viewTags && !m.cmp.open:
 		return m.pickTag(m.tagList()[*cur].Name)
 	}
 	m.detOff = 0
@@ -422,19 +426,19 @@ func (m *Model) canOpen() bool {
 }
 
 func (m *Model) canBack() bool {
-	inRelease := m.view == viewReleases && (m.cmp.open || m.cmp.base != "")
-	return m.inspect || m.focus == paneDetail || inRelease || m.filters[m.view] != ""
+	inTags := m.view == viewTags && (m.cmp.open || m.cmp.base != "")
+	return m.inspect || m.focus == paneDetail || inTags || m.filters[m.view] != ""
 }
 
 func (m *Model) back() {
 	switch {
 	case m.inspect || m.focus == paneDetail:
 		m.inspect, m.focus = false, paneMain
-	case m.view == viewReleases && m.cmp.open:
+	case m.view == viewTags && m.cmp.open:
 		m.cancelCompare()
 		m.cmp.open, m.cmp.head = false, ""
 		m.cmp.res = slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}
-	case m.view == viewReleases && m.cmp.base != "":
+	case m.view == viewTags && m.cmp.base != "":
 		m.cmp.base = ""
 	case m.filters[m.view] != "":
 		m.setFilter("")
@@ -445,7 +449,7 @@ func (m *Model) filterable() bool {
 	switch m.view {
 	case viewConnections:
 		return false
-	case viewReleases:
+	case viewTags:
 		return !m.cmp.open
 	}
 	return true
@@ -488,9 +492,11 @@ func (m *Model) listFor(v viewID) (int, *int, *int) {
 		return len(m.overviewRows()), cur, off
 	case viewActivity:
 		return len(m.activity()), cur, off
+	case viewPRs:
+		return len(m.prList()), cur, off
 	case viewRepo:
 		return len(m.repoCommits()), cur, off
-	case viewReleases:
+	case viewTags:
 		if m.cmp.open {
 			return len(m.cmp.res.val), &m.cmp.cur, &m.cmp.off
 		}
@@ -542,6 +548,20 @@ func (m *Model) activity() []gitx.Commit {
 	return m.commitsMatching(viewActivity, all)
 }
 
+// prList is the open pull requests of the selected repositories, most recently updated first.
+func (m *Model) prList() []gitx.PR {
+	var out []gitx.PR
+	for _, i := range m.scope() {
+		for _, p := range m.repos[i].prs.val {
+			if match(m.filters[viewPRs], p.Title, p.Author, p.Branch, p.Repo, "#"+strconv.Itoa(p.Number)) {
+				out = append(out, p)
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b gitx.PR) int { return b.Updated.Compare(a.Updated) })
+	return out
+}
+
 func (m *Model) repoCommits() []gitx.Commit {
 	r := m.selected()
 	if r == nil {
@@ -557,7 +577,7 @@ func (m *Model) tagList() []gitx.Tag {
 	}
 	var out []gitx.Tag
 	for _, t := range r.tags.val {
-		if match(m.filters[viewReleases], t.Name, t.Subject) {
+		if match(m.filters[viewTags], t.Name, t.Subject) {
 			out = append(out, t)
 		}
 	}
@@ -578,11 +598,15 @@ func (m *Model) ensure(force bool) tea.Cmd {
 		for _, i := range m.scope() {
 			cmds = append(cmds, m.load(i, kindLog, force))
 		}
+	case viewPRs:
+		for _, i := range m.scope() {
+			cmds = append(cmds, m.load(i, kindPRs, force))
+		}
 	case viewRepo:
 		if m.repo > 0 {
 			cmds = append(cmds, m.load(m.repo-1, kindSummary, force), m.load(m.repo-1, kindLog, force))
 		}
-	case viewReleases:
+	case viewTags:
 		if m.repo > 0 {
 			cmds = append(cmds, m.load(m.repo-1, kindTags, force))
 		}
@@ -634,6 +658,8 @@ func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 		return start(m, &r.summary, force, kind, i, func(ctx context.Context) (gitx.Summary, error) { return src.Summary(ctx, name, dir) })
 	case kindLog:
 		return start(m, &r.log, force, kind, i, func(ctx context.Context) ([]gitx.Commit, error) { return src.Log(ctx, name, dir, logDepth) })
+	case kindPRs:
+		return start(m, &r.prs, force, kind, i, func(ctx context.Context) ([]gitx.PR, error) { return src.PullRequests(ctx, name, dir) })
 	default:
 		return start(m, &r.tags, force, kind, i, func(ctx context.Context) ([]gitx.Tag, error) { return src.Tags(ctx, name, dir) })
 	}
@@ -651,24 +677,31 @@ func (m *Model) loadCompare() tea.Cmd {
 	})
 }
 
-// viewCommits is the commit list shown in v, or nil for views that do not list commits.
-func (m *Model) viewCommits(v viewID) []gitx.Commit {
+// rowKeys identifies each row of the lists that merge or reorder on reload, so the selection can follow its row.
+func (m *Model) rowKeys(v viewID) []string {
+	var keys []string
 	switch v {
-	case viewActivity:
-		return m.activity()
-	case viewRepo:
-		return m.repoCommits()
+	case viewActivity, viewRepo:
+		cs := m.activity()
+		if v == viewRepo {
+			cs = m.repoCommits()
+		}
+		for _, c := range cs {
+			keys = append(keys, c.Repo+"/"+c.Hash)
+		}
+	case viewPRs:
+		for _, p := range m.prList() {
+			keys = append(keys, p.Repo+"#"+strconv.Itoa(p.Number))
+		}
 	}
-	return nil
+	return keys
 }
 
-// applyResult stores a load result and keeps the same commit selected if the list reorders around it.
+// applyResult stores a load result and keeps the same row selected if the list reorders around it.
 func (m *Model) applyResult(msg resultMsg) {
-	type ref struct{ repo, hash string }
-	var keep *ref
-	if cs := m.viewCommits(m.view); m.cursor[m.view] < len(cs) {
-		c := cs[m.cursor[m.view]]
-		keep = &ref{c.Repo, c.Hash}
+	keep := "" // a cursor on the first row stays on top, so newest-first lists show new rows on load
+	if keys := m.rowKeys(m.view); m.cursor[m.view] > 0 && m.cursor[m.view] < len(keys) {
+		keep = keys[m.cursor[m.view]]
 	}
 	if msg.kind == kindCompare {
 		if msg.repo == m.cmp.repo {
@@ -683,13 +716,14 @@ func (m *Model) applyResult(msg resultMsg) {
 			finish(&r.log, msg)
 		case kindTags:
 			finish(&r.tags, msg)
+		case kindPRs:
+			finish(&r.prs, msg)
 		}
 	}
-	if keep != nil {
-		cs := m.viewCommits(m.view)
-		if i := slices.IndexFunc(cs, func(c gitx.Commit) bool { return c.Repo == keep.repo && c.Hash == keep.hash }); i >= 0 {
+	if keys := m.rowKeys(m.view); keep != "" {
+		if i := slices.Index(keys, keep); i >= 0 {
 			m.cursor[m.view] = i
-			m.keepVisible(m.view, &m.cursor[m.view], &m.offset[m.view], len(cs))
+			m.keepVisible(m.view, &m.cursor[m.view], &m.offset[m.view], len(keys))
 		}
 	}
 	m.clampAll()
