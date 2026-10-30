@@ -135,6 +135,7 @@ func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
 			Body: "## Summary\n\n" + demoBodies[(k%2)+1] + "\n\n![Screenshot of the change](https://github.com/user-attachments/assets/demo-" +
 				fmt.Sprint(k) + ")\n\n- [x] Tests added",
 			Files: []PRFile{{"app/maths.ts", 12, 3}, {"app/maths.test.ts", 40, 0}},
+			ForMe: i == 1,
 		})
 	}
 	return prs, nil

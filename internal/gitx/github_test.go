@@ -61,3 +61,16 @@ func TestParsePRsCheckRollup(t *testing.T) {
 		t.Fatal("non-JSON output must be an error")
 	}
 }
+
+func TestMarkRequested(t *testing.T) {
+	prs := []PR{{Number: 1}, {Number: 2}, {Number: 3}}
+	if err := MarkRequested(prs, `[{"number":3},{"number":9}]`); err != nil {
+		t.Fatal(err)
+	}
+	if prs[0].ForMe || prs[1].ForMe || !prs[2].ForMe {
+		t.Fatalf("only #3 is requested: %+v", prs)
+	}
+	if MarkRequested(prs, "not json") == nil {
+		t.Fatal("non-JSON output must be an error")
+	}
+}

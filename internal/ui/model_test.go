@@ -812,3 +812,36 @@ func TestClean(t *testing.T) {
 		t.Fatalf("clean = %q", got)
 	}
 }
+
+func TestStackedRows(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 16) // details on, so the list is under stackedBelow
+	m.view, m.focus = viewPRs, paneMain
+	for i := range m.repos {
+		drain(m, m.load(i, kindPRs, false))
+	}
+	prs := m.prList()
+	if !m.stacked(viewPRs) || m.listHeight(viewPRs) >= len(prs) {
+		t.Fatalf("want stacked rows that scroll: stacked %v, height %d, %d PRs", m.stacked(viewPRs), m.listHeight(viewPRs), len(prs))
+	}
+	lines := strings.Split(ansi.Strip(m.render()), "\n")
+	num := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "#"+strconv.Itoa(prs[0].Number)) })
+	if num < 0 || num+1 == len(lines) || !strings.Contains(lines[num+1], prs[0].Title[:10]) {
+		t.Fatalf("title should sit under its number at line %d:\n%s", num, strings.Join(lines, "\n"))
+	}
+	for range prs {
+		press(m, "j")
+	}
+	if !strings.Contains(ansi.Strip(m.render()), prs[len(prs)-1].Title[:10]) {
+		t.Fatal("the last PR should scroll into view")
+	}
+	i := slices.IndexFunc(prs, func(p gitx.PR) bool { return p.ForMe })
+	if i < 0 {
+		t.Fatal("demo should request a review from the viewer")
+	}
+	star := func(p gitx.PR) bool {
+		return strings.Contains(ansi.Strip(m.row(m.prSegs(p, 80, true), 80, false, true)[0]), "★")
+	}
+	if !star(prs[i]) || star(gitx.PR{Repo: "x", Number: 1}) {
+		t.Fatal("only PRs waiting on the viewer get a star")
+	}
+}

@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +60,21 @@ func (m *Model) listHeight(v viewID) int {
 			h -= len(info) + 1
 		}
 	}
+	if m.stacked(v) {
+		return max(1, h/2)
+	}
 	return max(1, h)
+}
+
+// stackedBelow is the list width under which rows with a title move the title to a second line.
+const stackedBelow = 100
+
+// stacked reports whether view v draws each row on two lines.
+func (m *Model) stacked(v viewID) bool {
+	if m.layout().mainW >= stackedBelow {
+		return false
+	}
+	return v == viewActivity || v == viewPRs || v == viewRepo || v == viewRuns || m.cmp.open && m.cmp.view == v
 }
 
 func (m *Model) View() tea.View {
@@ -258,24 +273,46 @@ type seg struct {
 	st lipgloss.Style
 }
 
-func (m *Model) row(segs []seg, w int, selected bool) string {
-	if selected {
-		var b strings.Builder
-		b.WriteString("> ")
-		for _, s := range segs {
-			b.WriteString(s.s)
-		}
-		st := m.st.marker
-		if m.focus == paneMain {
-			st = m.st.selected.Width(w)
-		}
-		return st.Render(ansi.Truncate(b.String(), w, "…"))
-	}
-	parts := []string{"  "}
+// brk marks where a stacked row continues on its second line; unstacked rows ignore it.
+var brk = seg{s: "\n"}
+
+// row draws one list item: one line, or two when stacked splits it at brk.
+func (m *Model) row(segs []seg, w int, selected, stacked bool) []string {
+	lines := [][]seg{nil}
 	for _, s := range segs {
-		parts = append(parts, s.st.Render(s.s))
+		switch {
+		case s.s != brk.s:
+			lines[len(lines)-1] = append(lines[len(lines)-1], s)
+		case stacked:
+			lines = append(lines, []seg{{"  ", m.st.text}})
+		}
 	}
-	return strings.Join(parts, "")
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		lead := "  "
+		if selected && i == 0 {
+			lead = "> "
+		}
+		if selected {
+			var b strings.Builder
+			b.WriteString(lead)
+			for _, s := range l {
+				b.WriteString(s.s)
+			}
+			st := m.st.marker
+			if m.focus == paneMain {
+				st = m.st.selected.Width(w)
+			}
+			out[i] = st.Render(ansi.Truncate(b.String(), w, "…"))
+			continue
+		}
+		parts := []string{lead}
+		for _, s := range l {
+			parts = append(parts, s.st.Render(s.s))
+		}
+		out[i] = strings.Join(parts, "")
+	}
+	return out
 }
 
 func pad(s string, n int) string {
@@ -308,7 +345,7 @@ func (m *Model) mainLines(w, h int) []string {
 	}
 	end := min(n, *off+m.listHeight(m.view))
 	for i := *off; i < end; i++ {
-		lines = append(lines, m.row(rows(i), w, i == *cur))
+		lines = append(lines, m.row(rows(i), w, i == *cur, m.stacked(m.view))...)
 	}
 	return lines
 }
@@ -320,7 +357,7 @@ func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 		segs = append(segs, seg{pad(clean(c.Repo), 14), m.st.accent})
 	}
 	return append(segs,
-		seg{short(c.Hash) + "  ", m.st.muted},
+		seg{short(c.Hash) + "  ", m.st.muted}, brk,
 		seg{clean(c.Subject) + "  ", m.st.text},
 		seg{clean(c.Author), m.st.muted})
 }
@@ -359,7 +396,7 @@ func (m *Model) runSegs(r gitx.Run, w int, showRepo bool) []seg {
 	}
 	// Status sits next to the workflow so it survives truncation on narrower panes.
 	segs = append(segs, seg{pad(clean(r.Workflow), 20), m.st.text}, seg{pad(state, 16), st}, seg{pad(clean(r.Branch), 18), m.st.accent})
-	segs = append(segs, seg{m.stamp(r.Started, w) + "  ", m.st.muted})
+	segs = append(segs, seg{m.stamp(r.Started, w) + "  ", m.st.muted}, brk)
 	return append(segs, seg{clean(r.Title), m.st.muted})
 }
 
@@ -469,12 +506,16 @@ func (m *Model) reviewText(p gitx.PR) (string, lipgloss.Style) {
 func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	glyph := map[gitx.CheckState]string{gitx.ChecksNone: " ", gitx.ChecksPassing: "·", gitx.ChecksPending: "…", gitx.ChecksFailing: "!"}[p.Checks]
 	review, rst := m.reviewText(p)
-	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}}
+	star := " " // marks PRs waiting on the viewer's review
+	if p.ForMe {
+		star = "★"
+	}
+	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}, {star + " ", m.st.accent}}
 	if showRepo {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
 	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.muted}, seg{pad(review, 8), rst})
-	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted})
+	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted}, brk)
 	return append(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.st.muted})
 }
 
@@ -489,6 +530,9 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
 		m.kv("Updated", m.when(p.Updated), m.st.text),
 		m.kv("Link", clean(p.URL), m.st.muted),
+	}
+	if p.ForMe {
+		lines = slices.Insert(lines, 5, m.kv("Requested", "★ your review", m.st.accent))
 	}
 	if strings.TrimSpace(p.Body) != "" {
 		lines = append(lines, "", m.st.title.Render(" Description"))

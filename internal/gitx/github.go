@@ -33,6 +33,7 @@ type PR struct {
 	Updated time.Time
 	Body    string
 	Files   []PRFile
+	ForMe   bool // the viewer's review is requested, directly or through a team
 }
 
 // PRFile is one file a pull request changes.
@@ -55,7 +56,34 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParsePRs(repo, out)
+	prs, err := ParsePRs(repo, out)
+	if err != nil {
+		return nil, err
+	}
+	// GitHub search counts team requests too; a request is cleared once the viewer reviews.
+	// Newest first, like the list above, so every listed PR that is requested falls inside the limit.
+	// shortcut: a failed request search only hides the stars until the next refresh; show the error if that confuses.
+	if mine, err := command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
+		"--search", "review-requested:@me sort:created-desc", "--json", "number"); err == nil {
+		_ = MarkRequested(prs, mine)
+	}
+	return prs, nil
+}
+
+// MarkRequested sets ForMe on the PRs listed in `gh pr list --json number` output.
+func MarkRequested(prs []PR, out string) error {
+	var raw []struct{ Number int }
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return fmt.Errorf("parse gh output: %w", err)
+	}
+	for _, r := range raw {
+		for i := range prs {
+			if prs[i].Number == r.Number {
+				prs[i].ForMe = true
+			}
+		}
+	}
+	return nil
 }
 
 // PRDiff is a pull request's code changes as patch lines.

@@ -7,7 +7,7 @@ A terminal command centre for your repositories. It is **read-only**: it shows l
 - Go 1.26 or newer. The module declares `go 1.26.0`; with the default `GOTOOLCHAIN=auto`, an older local Go downloads it automatically.
 - `git` on `PATH`.
 - Optional: the GitHub CLI (`gh`), logged in with `gh auth login`, for the Pull requests, Environments and Deploys views. Each repository's `origin` must point at github.com.
-- A terminal at least 60×16. The sidebar appears from 100 columns and the details pane from 120 columns.
+- A terminal at least 60×16. The sidebar appears from 100 columns and the details pane from 120 columns. When the list is narrower than 100 columns, commit, pull request and deploy rows put their title on a second line.
 
 No Nerd Font or image support is required.
 
@@ -60,12 +60,14 @@ The file is selected in this order:
 |-------------|-----------------------------------------------------------------------------------------|
 | Overview    | Per repository: branch, worktree state, ahead/behind, latest commit                      |
 | Activity    | Recent commits (100 per repository), merged by date, for all repositories or the one selected |
-| Pull requests | Open PRs with review state, draft flag and combined check status (passing, pending, failing). Details show the description (first 200 lines, with its pictures) and the changed files; `d` shows the PR's code diff |
+| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). Details show the description (first 200 lines, with its pictures) and the changed files; `d` shows the PR's code diff |
 | Repository  | Branch, HEAD, upstream, tracking and worktree for the selected repository, plus its commits |
 | Tags        | Tags; mark one as the base and pick another to list the **commits** between them        |
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
 | Deploys     | Recent deploy workflow runs: status, duration, branch and link. While a run is queued or running, the view reloads every 10 seconds by itself |
 | Connections | What is available: local Git, the config, GitHub pull requests, deployments and deploy runs (from what those views last loaded) |
+
+In Pull requests, a **★** in the column after the check status means someone has asked for your review, either you directly or a team you belong to. Details repeats it as "Requested: ★ your review". The star comes from GitHub's `review-requested:@me` search, so it disappears once you submit a review, and comes back if you are asked again. It sits apart from the review column, which shows the PR's overall state (approved, changes, review, draft). If the search fails, the list still loads without stars until the next refresh.
 
 Tag comparisons are plain commit lists. PRs are squash-merged, so each commit title is already its PR title with `(#number)`; no feature summaries are invented. Environments show what **GitHub Deployments recorded**, not what the running service reports: a workflow can record success without the service serving that commit. "Not yet deployed" uses your local clone, so it is as current as your last `git fetch`; if the deployed commit is newer than your clone, the view says so. Ahead/behind reflects your last `git fetch`, since git-tui never fetches.
 
