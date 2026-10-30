@@ -2,6 +2,11 @@
 description = "Build bin/git-tui"
 run = "go build -o bin/git-tui ./cmd/git-tui"
 
+[tasks.lint]
+description = "golangci-lint with the repository's .golangci.yml (includes gofmt and vet)"
+tools.golangci-lint = "2.15.0" # only this task needs it; same version as CI
+run = "golangci-lint run"
+
 [tasks.test]
 description = "gofmt check, go vet, tests with the race detector"
 run = [

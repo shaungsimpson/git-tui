@@ -49,7 +49,7 @@ func TestTokenStaysWithGitHub(t *testing.T) {
 	var storageAuth string
 	storage := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		storageAuth = r.Header.Get("Authorization")
-		w.Write([]byte("png"))
+		_, _ = w.Write([]byte("png"))
 	}))
 	defer storage.Close()
 	var githubAuth string

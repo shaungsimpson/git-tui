@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose # every HTTP response body is closed
+    - errorlint # wrapped errors are compared with errors.Is / errors.As
+    - misspell # comments and strings use Australian (UK) spelling
+    - nilerr # an error is not dropped by returning nil
+    - unconvert # no needless conversions
+  settings:
+    misspell:
+      locale: UK
+      mode: restricted # comments only: library names such as color.RGBA and lipgloss.Center stay as they are
+
+formatters:
+  enable:
+    - gofmt

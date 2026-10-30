@@ -84,6 +84,7 @@ Tasks run with [mise](https://mise.jdx.dev). On first use in this folder, run `m
 ```sh
 mise tasks                  # list tasks
 mise run build              # builds bin/git-tui
+mise run lint               # golangci-lint (includes gofmt and go vet)
 mise run test               # gofmt check, go vet, tests with the race detector
 mise run demo               # builds and runs with fixture data, no repositories read
 mise run start              # builds and runs with the default config location
@@ -199,8 +200,10 @@ While the filter input is open, all typing and pasted text go to the input, not 
 ## Development
 
 ```sh
-mise run test && mise run build
+mise run lint && mise run test && mise run build
 ```
+
+[AGENTS.md](AGENTS.md) has the definition of done for a pull request and the design principles to follow. It is written for people and coding agents alike.
 
 Tests use fixtures and temporary Git repositories. They do not touch remote services.
 
@@ -208,7 +211,7 @@ Tests use fixtures and temporary Git repositories. They do not touch remote serv
 
 Demo mode is the showcase, so it must show every feature. When you add one, give the demo fixtures (`internal/gitx/demo.go`, `demo_images.go`) what it needs and extend `TestDemoShowsEveryFeature`.
 
-CI (`.github/workflows/ci.yml`) runs the same checks plus a build on every pull request to `main` and on every push to `main`.
+CI (`.github/workflows/ci.yml`) runs the lint and test checks plus a build on every pull request to `main` and on every push to `main`.
 
 ## Layout
 
@@ -216,5 +219,8 @@ CI (`.github/workflows/ci.yml`) runs the same checks plus a build on every pull 
 cmd/git-tui        entry point and flags
 internal/config      JSON config loading and per-repository validation
 internal/gitx        read-only git and gh runner, parsers, demo fixtures
-internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go)
+internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go), profile header (profile.go)
+internal/termimg     picture downloads, Kitty graphics, colour-block and character drawing
+scripts              screenshots.sh, behind mise run screenshots
+docs/images          README screenshots
 ```

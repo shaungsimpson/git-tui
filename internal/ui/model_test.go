@@ -217,7 +217,7 @@ type countingSource struct {
 
 func (c *countingSource) Log(_ context.Context, repo, _ string, _ int) ([]gitx.Commit, error) {
 	n := c.calls.Add(1)
-	return []gitx.Commit{{Repo: repo, Hash: "abc", Subject: "call " + string(rune('0'+n))}}, nil
+	return []gitx.Commit{{Repo: repo, Hash: "abc", Subject: "call " + string('0'+n)}}, nil
 }
 
 func TestStaleResultsDropped(t *testing.T) {

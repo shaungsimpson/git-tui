@@ -109,17 +109,16 @@ func (m *Model) render() string {
 		rows = append(rows, box(m.diffLines(l.bodyH), m.width, l.bodyH))
 	} else {
 		var cols []string
-		var widths []int
 		if l.sideW > 0 {
-			cols, widths = append(cols, box(m.sidebarLines(l.bodyH), l.sideW, l.bodyH)), append(widths, l.sideW)
+			cols = append(cols, box(m.sidebarLines(l.bodyH), l.sideW, l.bodyH))
 		}
 		if m.inspect && l.detailW == 0 {
-			cols, widths = append(cols, box(m.detailPane(l.mainW, l.bodyH), l.mainW, l.bodyH)), append(widths, l.mainW)
+			cols = append(cols, box(m.detailPane(l.mainW, l.bodyH), l.mainW, l.bodyH))
 		} else {
-			cols, widths = append(cols, box(m.mainLines(l.mainW, l.bodyH), l.mainW, l.bodyH)), append(widths, l.mainW)
+			cols = append(cols, box(m.mainLines(l.mainW, l.bodyH), l.mainW, l.bodyH))
 		}
 		if l.detailW > 0 {
-			cols, widths = append(cols, box(m.detailPane(l.detailW, l.bodyH), l.detailW, l.bodyH)), append(widths, l.detailW)
+			cols = append(cols, box(m.detailPane(l.detailW, l.bodyH), l.detailW, l.bodyH))
 		}
 		rows = append(rows, m.join(cols, l.bodyH))
 	}

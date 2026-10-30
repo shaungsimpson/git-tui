@@ -50,9 +50,9 @@ func SaveState(path string, s State) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name()) // no-op after the rename
+	defer func() { _ = os.Remove(f.Name()) }() // fails harmlessly after the rename
 	if _, err := f.Write(append(data, '\n')); err != nil {
-		f.Close()
+		_ = f.Close() // the write error is the one worth reporting
 		return err
 	}
 	if err := f.Close(); err != nil {

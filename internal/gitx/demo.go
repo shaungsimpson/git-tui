@@ -105,8 +105,8 @@ func (Demo) Compare(_ context.Context, repo, _, base, head string) ([]Commit, er
 		return demoCommits(repo, len(repo)%4, 0), nil
 	}
 	var b, h int
-	fmt.Sscanf(base, "v1.%d.0", &b)
-	fmt.Sscanf(head, "v1.%d.0", &h)
+	_, _ = fmt.Sscanf(base, "v1.%d.0", &b) // fixture tags always match; a mismatch leaves 0
+	_, _ = fmt.Sscanf(head, "v1.%d.0", &h)
 	if h <= b {
 		return nil, nil
 	}

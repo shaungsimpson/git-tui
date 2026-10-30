@@ -29,7 +29,8 @@ func demoAvatar(size int) image.Image {
 			t := (fx + fy) / 2
 			c := color.RGBA{R: uint8(40 + 40*t), G: uint8(150 - 70*t), B: uint8(140 + 60*t), A: 255}
 			head := math.Hypot(fx-0.5, fy-0.4) < 0.18
-			shoulders := math.Pow((fx-0.5)/0.34, 2)+math.Pow((fy-0.98)/0.34, 2) < 1
+			sx, sy := (fx-0.5)/0.34, (fy-0.98)/0.34
+			shoulders := sx*sx+sy*sy < 1
 			if head || shoulders {
 				c = color.RGBA{R: 232, G: 240, B: 238, A: 255}
 			}
