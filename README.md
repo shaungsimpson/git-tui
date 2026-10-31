@@ -102,7 +102,7 @@ The time zone (`u`) and the profile header style (`b`) are remembered between ru
 
 ## Demo mode
 
-`-demo` uses deterministic built-in fixtures. A `DEMO` badge appears in the header, and the status bar says no repositories are read. The fixtures include one repository that fails to read and one that is missing, so you can see the error and unavailable states. Demo mode shows every feature: the profile header with a generated avatar and every count lit, and PR pictures drawn from generated mock screenshots, all without touching the network. "This week" counts back from the fixtures' own date. Normal mode never falls back to fixtures.
+`-demo` uses deterministic built-in fixtures. A `DEMO` badge appears in the header, and the status bar says no repositories are read. The fixtures include one repository that fails to read and one that is missing, so you can see the error and unavailable states. Demo mode shows every feature: the profile header with a generated avatar and every count lit, and PR pictures drawn from generated mock screenshots, all without touching the network. `t`, `T` and `Ctrl+T` are offered in any terminal and say what they would open, without opening anything. "This week" counts back from the fixtures' own date. Normal mode never falls back to fixtures.
 
 ## Views
 
@@ -158,6 +158,7 @@ The header degrades to what the terminal can show:
 | `F2`              | Toggle the dark and light themes                                           |
 | `d`               | Show a diff: on a pull request, its code changes; on a repository with uncommitted changes (Overview row, sidebar or Repository view), those changes in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
 | `o`               | In Pull requests: open the selected PR in your browser (https links only) |
+| `t` / `T` / `Ctrl+T` | Open a new Ghostty tab, a split to the right, or a split below, at the selected repository's root (Overview row, sidebar or Repository view). Ghostty 1.4 or later on macOS, outside tmux; elsewhere the keys are hidden |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
 | `Ctrl+C`          | Quit                                                                       |
@@ -175,6 +176,7 @@ While the filter input is open, all typing and pasted text go to the input, not 
 - Deploys also reloads every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.
 - Pictures in PR descriptions are drawn in the terminal in Ghostty and kitty (Kitty graphics protocol with Unicode placeholders), not inside tmux; other terminals, including WezTerm for now, show the picture's name instead. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded, up to 10 MB each. Your `gh` login token is sent to github.com only, because attachments in private repositories need it; it is not sent on to GitHub's storage host. Anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures; it draws generated ones.
 - A failed load keeps the last good data on screen and retries by itself after 1, 2, 4 and 8 minutes, then every 10 minutes; Ctrl+R retries at once, pictures and your avatar included, and the status line shows a `ctrl+r retry` hint.
+- `t`, `T` and `Ctrl+T` run `osascript` with Ghostty's own AppleScript commands to open a tab in the front window, or split the focused pane (1-minute timeout, so there is time to answer the macOS permission prompt). A relative repository path is made absolute first. The repository path is passed as an argument, not written into the script. The first time, macOS may ask to let Ghostty control Ghostty; if you refuse, the key shows the error. Demo mode only says which directory it would open.
 - Loads run asynchronously. A refresh keeps the existing content visible, and results from superseded requests are discarded.
 - Text from Git (subjects, branch names, errors) has its control characters, escape sequences and text direction overrides removed before display.
 

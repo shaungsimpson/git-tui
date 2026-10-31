@@ -12,6 +12,9 @@ const (
 	actOpen
 	actBrowse
 	actDiff
+	actTab
+	actSplitRight
+	actSplitDown
 	actBack
 	actFilter
 	actGo
@@ -45,6 +48,9 @@ var actions = []action{
 	{id: actOpen, key: bind("enter", "open", "enter"), hint: true, when: (*Model).canOpen},
 	{id: actBrowse, key: bind("o", "open in browser", "o"), hint: true, when: (*Model).canBrowse},
 	{id: actDiff, key: bind("d", "diff", "d"), hint: true, when: (*Model).canDiff},
+	{id: actTab, key: bind("t", "new tab", "t"), hint: true, when: (*Model).canTab},
+	{id: actSplitRight, key: bind("T", "split right", "T", "shift+t"), when: (*Model).canTab},
+	{id: actSplitDown, key: bind("ctrl+t", "split down", "ctrl+t"), when: (*Model).canTab},
 	{id: actBack, key: bind("esc", "back", "esc"), hint: true, when: (*Model).canBack},
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
 	{id: actGo, key: bind("g", "go to view…", "g")},

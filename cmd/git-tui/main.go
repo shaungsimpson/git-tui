@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
@@ -52,7 +53,8 @@ func main() {
 	}
 
 	// Demo mode never touches the network: its avatar and PR pictures are drawn from fixtures.
-	opts := ui.Options{Demo: *demo, Images: termimg.Supported(os.Getenv), Profile: profile, UTC: state.UTC,
+	opts := ui.Options{Demo: *demo, Images: termimg.Supported(os.Getenv),
+		Tabs: runtime.GOOS == "darwin" && os.Getenv("TERM_PROGRAM") == "ghostty" && os.Getenv("TMUX") == "", Profile: profile, UTC: state.UTC,
 		StatePath: statePath, Version: v, Tools: map[string]string{}}
 	opts.Executable, _ = os.Executable()
 	for _, t := range []string{"git", "gh"} {

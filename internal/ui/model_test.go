@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -86,6 +87,10 @@ func keyMsg(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyF2}
 	case "ctrl+r":
 		return tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}
+	case "ctrl+t":
+		return tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}
+	case "T":
+		return tea.KeyPressMsg{Code: 't', ShiftedCode: 'T', Text: "T", Mod: tea.ModShift}
 	case "pgdown":
 		return tea.KeyPressMsg{Code: tea.KeyPgDown}
 	case "pgup":
@@ -105,7 +110,7 @@ func press(m *Model, keys ...string) {
 }
 
 func TestKeyStringsMatchBindings(t *testing.T) {
-	for _, s := range []string{"tab", "shift+tab", "enter", "esc", "f2", "ctrl+r", "j", "?", "/", "pgdown", "pgup"} {
+	for _, s := range []string{"tab", "shift+tab", "enter", "esc", "f2", "ctrl+r", "ctrl+t", "T", "j", "?", "/", "pgdown", "pgup"} {
 		if got := keyMsg(s).String(); got != s {
 			t.Errorf("key %q stringifies as %q", s, got)
 		}
@@ -697,6 +702,43 @@ func TestDiffView(t *testing.T) {
 	}
 }
 
+func TestOpenTab(t *testing.T) {
+	var opened []string
+	real := openTab
+	openTab = func(dir, mode string) error { opened = append(opened, mode+" "+dir); return nil }
+	t.Cleanup(func() { openTab = real })
+
+	o := demoOpts()
+	o.Demo = false
+	m := setup(t, o, 140, 30)
+	if m.canTab() {
+		t.Fatal("t should only be offered where the terminal can open tabs")
+	}
+	m.opts.Tabs = true
+	press(m, "t", "T", "ctrl+t") // Overview's first row: backend
+	if !slices.Equal(opened, []string{"tab /demo/backend", "right /demo/backend", "down /demo/backend"}) {
+		t.Fatalf("opened %v", opened)
+	}
+	m.repos[0].cfg.Path = "backend" // relative paths in the config are read from our directory
+	press(m, "t")
+	if want, _ := filepath.Abs("backend"); opened[3] != "tab "+want {
+		t.Fatalf("opened %q, want the absolute path %s", opened[3], want)
+	}
+	press(m, "shift+tab", "k") // sidebar: all repositories
+	if m.canTab() {
+		t.Fatal("not for all repositories")
+	}
+	press(m, "j", "j", "j", "j", "j") // sidebar: infra, whose directory is missing
+	if m.repos[m.repo-1].cfg.Name != "infra" || m.canTab() {
+		t.Fatalf("repo %d: not for a repository without a directory", m.repo)
+	}
+	openTab = func(string, string) error { return errors.New("not allowed") }
+	press(m, "k", "T")
+	if !strings.Contains(m.flash, "Could not open a split to the right: not allowed") {
+		t.Fatalf("flash %q", m.flash)
+	}
+}
+
 func TestDiffScrolls(t *testing.T) {
 	m := setup(t, demoOpts(), 80, 16)
 	m.diff = diffState{open: true, repo: 1, res: slot[[]string]{loaded: true, val: make([]string, 40)}}
@@ -1182,6 +1224,10 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	}
 	if !strings.ContainsRune(strings.Join(m.detailLines(), ""), kitty.Placeholder) {
 		t.Fatal("demo PRs should draw their pictures")
+	}
+	press(m, "g", "o", "t")
+	if !strings.Contains(m.flash, "Demo: would open a tab in") {
+		t.Fatalf("demo should show what t does: %q", m.flash)
 	}
 	for _, mode := range []Profile{ProfileASCII, ProfileText, ProfileOff, ProfileFull} {
 		press(m, "b")

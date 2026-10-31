@@ -3,7 +3,9 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -110,6 +112,50 @@ var openBrowser = func(url string) error {
 	return exec.Command(name, url).Run()
 }
 
+type tabMsg struct {
+	what string
+	err  error
+}
+
+// ghosttyOpen opens a Ghostty tab, or splits the focused pane, in a directory.
+// The path and mode are arguments, never part of the script text.
+const ghosttyOpen = `on run argv
+	set dir to item 1 of argv
+	set mode to item 2 of argv
+	tell application "Ghostty"
+		set cfg to new surface configuration
+		set initial working directory of cfg to dir
+		if mode is "tab" then
+			new tab in front window with configuration cfg
+		else
+			set here to focused terminal of selected tab of front window
+			if mode is "right" then
+				split here direction right with configuration cfg
+			else
+				split here direction down with configuration cfg
+			end if
+		end if
+	end tell
+end run`
+
+// openModes names what each mode opens, for messages.
+var openModes = map[actionID]struct{ mode, what string }{
+	actTab:        {"tab", "a tab"},
+	actSplitRight: {"right", "a split to the right"},
+	actSplitDown:  {"down", "a split below"},
+}
+
+// openTab opens a terminal tab or split ("tab", "right" or "down") at dir; a variable so tests never launch one.
+var openTab = func(dir, mode string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute) // long enough to answer a macOS permission prompt
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "osascript", "-e", ghosttyOpen, dir, mode).CombinedOutput()
+	if err != nil && len(out) > 0 {
+		return errors.New(strings.TrimSpace(string(out)))
+	}
+	return err
+}
+
 // compareState is a commit list between two revisions, opened from Tags (pick a base tag, then a head tag)
 // or from Environments (a deployed commit against origin/HEAD). view says which one owns it.
 type compareState struct {
@@ -173,6 +219,7 @@ type Options struct {
 	ConfigErr  error
 	Demo       bool
 	Images     bool // the terminal draws Kitty graphics placeholders
+	Tabs       bool // the terminal can open a tab for a repository (Ghostty on macOS, outside tmux)
 	Profile    Profile
 	UTC        bool   // show times in UTC
 	StatePath  string // where toggles are remembered; empty in demo mode and tests
@@ -307,6 +354,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash = "Could not open the browser: " + msg.err.Error()
 		} else {
 			m.flash = "Opened " + msg.what + " in your browser."
+		}
+	case tabMsg:
+		if msg.err != nil {
+			m.flash = "Could not open " + msg.what + ": " + clean(msg.err.Error())
 		}
 	case seqExpiredMsg:
 		if msg.gen == m.seqGen {
@@ -494,13 +545,26 @@ func (m *Model) do(id actionID) tea.Cmd {
 			return nil
 		}
 		return func() tea.Msg { return browserMsg{what, openBrowser(url)} }
+	case actTab, actSplitRight, actSplitDown:
+		i := m.tabTarget()
+		if i < 0 {
+			return nil
+		}
+		dir, o := m.repos[i].cfg.Path, openModes[id]
+		if m.opts.Demo {
+			m.flash = "Demo: would open " + o.what + " in " + clean(dir) + "."
+			return nil
+		}
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs // Ghostty would read a relative path from its own directory, not ours
+		}
+		return func() tea.Msg { return tabMsg{o.what, openTab(dir, o.mode)} }
 	}
 	return nil
 }
 
-// diffTarget is the repository whose changes d shows: the sidebar's, the Overview row's, or the Repository view's.
-// It is -1 when nothing with uncommitted changes is selected.
-func (m *Model) diffTarget() int {
+// selectedRepo is the sidebar's repository, the Overview row's, or the Repository view's; -1 when there is none.
+func (m *Model) selectedRepo() int {
 	i := -1
 	switch {
 	case m.focus == paneSidebar || m.view == viewRepo:
@@ -510,10 +574,33 @@ func (m *Model) diffTarget() int {
 			i = rows[m.cursor[viewOverview]]
 		}
 	}
-	if i < 0 || i >= len(m.repos) || !m.repos[i].summary.loaded || m.repos[i].summary.val.Clean() {
+	if i >= len(m.repos) {
 		return -1
 	}
 	return i
+}
+
+// diffTarget is the repository whose changes d shows, or -1 when nothing with uncommitted changes is selected.
+func (m *Model) diffTarget() int {
+	i := m.selectedRepo()
+	if i < 0 || !m.repos[i].summary.loaded || m.repos[i].summary.val.Clean() {
+		return -1
+	}
+	return i
+}
+
+// tabTarget is the repository t opens a tab in, or -1 when the selected one has no usable directory.
+func (m *Model) tabTarget() int {
+	i := m.selectedRepo()
+	if i < 0 || m.repos[i].cfg.Status != config.StatusOK {
+		return -1
+	}
+	return i
+}
+
+// canTab offers t where the terminal can open a tab; demo shows it everywhere but only says what it would do.
+func (m *Model) canTab() bool {
+	return (m.opts.Tabs || m.opts.Demo) && m.tabTarget() >= 0
 }
 
 func (m *Model) canDiff() bool {
