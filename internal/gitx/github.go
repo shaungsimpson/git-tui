@@ -176,7 +176,7 @@ func ParsePRs(repo, out string) ([]PR, error) {
 			switch result {
 			case "FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
 				checks = ChecksFailing
-			case "", "PENDING", "EXPECTED": // a running check run has no conclusion yet
+			case "", "PENDING", "EXPECTED", "STALE": // running, or (STALE) left unfinished for 14 days: not a pass
 				checks = max(checks, ChecksPending)
 			default:
 				checks = max(checks, ChecksPassing)

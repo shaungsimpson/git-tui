@@ -95,9 +95,11 @@ func (m *Model) wanted() []want {
 	case viewRuns:
 		add(kindRuns, m.scope()...)
 	}
+	// The review and ready-to-merge badges show in every header mode, so every repository's PRs and the viewer
+	// (whose login says which PRs are theirs) are always on screen.
+	add(kindViewer, -1)
+	add(kindPRs, all...)
 	if m.profileShown() != ProfileOff {
-		add(kindViewer, -1)
-		add(kindPRs, all...)
 		add(kindLog, all...)
 		add(kindSummary, all...)
 	}

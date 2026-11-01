@@ -2,7 +2,7 @@
 
 A terminal command centre for your repositories. It is **read-only**: it shows local Git state, recent commits, open pull requests, tag-to-tag commit lists, what is deployed to each environment, what is not deployed yet, and deploy runs as they happen, across the repositories you configure.
 
-![git-tui in demo mode: the profile header above the Pull requests view, with a PR's picture in the details pane](docs/images/pull-requests.png)
+![git-tui in demo mode: the profile header, with its review and ready-to-merge badges, above the Pull requests view, with a PR's picture in the details pane](docs/images/pull-requests.png)
 
 ## Get started
 
@@ -121,6 +121,8 @@ The time zone (`u`), the profile header style (`b`) and the folder adding reposi
 | Deploys     | Recent deploy workflow runs: status, duration, branch and link. While a run is queued or running, the view reloads every 10 seconds by itself |
 | Connections | What is available: local Git, the config and each configured repository (managed here, see [Managing repositories](#managing-repositories)), GitHub pull requests, deployments and deploy runs (from what those views last loaded), and git-tui itself: its version, where it is installed and how to update it |
 
+In Pull requests, a green **✔** in the column after the check status marks your own PR that is ready to merge: approved, every check passing, and not a draft. Details says "Ready: ✔ approved, checks passing". Merge conflicts are not checked.
+
 In Pull requests, a **★** in the column after the check status means someone has asked for your review, either you directly or a team you belong to. Details repeats it as "Requested: ★ your review". The star comes from GitHub's `review-requested:@me` search, so it disappears once you submit a review, and comes back if you are asked again. It sits apart from the review column, which shows the PR's overall state (approved, changes, review, draft). If the search fails, the list still loads without stars until the next refresh.
 
 Authors are coloured so you can follow a person down a list: the same name always gets the same colour, ignoring case and punctuation (`Jane Doe` and `jane.doe` match). Your own name, as your GitHub login, display name or git name, is in the accent colour (a PR author must match your login exactly), and bots such as `renovate[bot]` and GitHub Apps (`app/dependabot`) are grey. A GitHub login and a git name for someone else can still get different colours, since nothing links them.
@@ -131,6 +133,13 @@ Tag comparisons are plain commit lists. PRs are squash-merged, so each commit ti
 
 Above the tabs, a header shows who you are and what is waiting for you, across every configured repository: your GitHub name, handle, company, location and bio, review requests (★), your open PRs, how many of them are failing or have changes requested, your commits this week, repositories with uncommitted changes, followers, and your local git identity. It needs `gh` for the GitHub parts; without it, the header still shows your git identity and the local counts.
 
+Two badges stand out at the right of the header's first line whenever there is something to act on:
+
+- A red **🔔 3** badge counts the open PRs waiting on your review (the ★ ones), and a green **✔ 2** badge counts your PRs ready to merge. Counts above 9 show as `9+`. A badge is hidden at zero and until pull requests load; if a load fails, the last good count stays.
+- In the ASCII and text headers they are drawn as `[! 3]` and `[ok 2]`. With the header off, or hidden because the window is short, they move to the tab bar, which drops the repository name, then the time zone, before the tabs to make room.
+- When the review count goes up while the app is open, the red badge pulses for about three seconds. While reviews are waiting, the window title reads `git-tui (3)`, so you can see it from another tab.
+- `n` lists the PRs behind them: see [Keyboard](#keyboard).
+
 Press `b` to cycle it (the choice is remembered), or start with `-profile`:
 
 | Mode    | Shows |
@@ -140,7 +149,7 @@ Press `b` to cycle it (the choice is remembered), or start with `-profile`:
 | `text`  | One line of counts, zeros left out |
 | `off`   | Nothing |
 
-![The profile header in ASCII mode](docs/images/header-ascii.png)
+![The profile header in ASCII mode, its badges drawn as [! 3] and [ok 2]](docs/images/header-ascii.png)
 
 The header degrades to what the terminal can show:
 
@@ -155,7 +164,8 @@ The header degrades to what the terminal can show:
 | `Tab` / `Shift+Tab` | Move focus between visible panes                                         |
 | `Enter`           | Open or inspect the selected item (in Tags: choose the base tag, then the head tag; in Environments: list commits not yet deployed) |
 | `Esc`             | Close details, the comparison, the base selection or the filter            |
-| `/`               | Filter the current list (`Enter` applies, `Esc` cancels)                   |
+| `/`               | Filter the current list (`Enter` applies, `Esc` cancels). In Pull requests, `is:review` keeps your review requests and `is:ready` your PRs ready to merge |
+| `n`               | Go to Pull requests across all repositories, filtered to your review requests (`is:review`); again for your PRs ready to merge (`is:ready`); again to show every PR |
 | `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout) |
 | `Ctrl+R`          | Refresh everything on screen now, including failed loads                   |
 | `?`               | Contextual shortcut help                                                   |
@@ -177,7 +187,7 @@ While the filter, rename or folder input is open, all typing and pasted text go 
 - GitHub calls go only to a remote whose host is github.com itself (or, over SSH, a host alias such as `github.com-work`).
 - Pull requests are read with `gh pr list`, deployments with `gh api graphql` and deploy runs with `gh run list` (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.
-- Data on screen refreshes by itself when it is stale: local Git data after 5 seconds, GitHub data (pull requests, environments, deploys) after 1 minute, and your GitHub profile after 30 minutes. Staleness is checked on every key press, when you come back to the window, when it is resized, and on a 1-minute idle tick while the window is focused. The tick pauses while the window is in the background and after 10 minutes without a key press, so an open but unused window makes no `gh` calls. With the profile header shown, every repository's pull requests, commits and status count as on screen, since the header counts them; with it off, only the current view's data refreshes. The right of the tab bar says how old the data is (`Updated 3m ago`), or `Updating…` while a refresh runs; when the tabs need the room it shortens to `3m ago` (or `Just now`), then gives way.
+- Data on screen refreshes by itself when it is stale: local Git data after 5 seconds, GitHub data (pull requests, environments, deploys) after 1 minute, and your GitHub profile after 30 minutes. Staleness is checked on every key press, when you come back to the window, when it is resized, and on a 1-minute idle tick while the window is focused. The tick pauses while the window is in the background and after 10 minutes without a key press, so an open but unused window makes no `gh` calls. Every repository's pull requests and your GitHub profile always count as on screen, since the review and ready-to-merge badges show in every header mode. With the profile header shown, every repository's commits and status do too, since the header counts them; with it off, the rest refreshes only for the current view. The right of the tab bar says how old the data is (`Updated 3m ago`), or `Updating…` while a refresh runs; when the tabs need the room it shortens to `3m ago` (or `Just now`), then gives way.
 - Deploys also reloads every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.
 - Pictures in PR descriptions are drawn in the terminal in Ghostty and kitty (Kitty graphics protocol with Unicode placeholders), not inside tmux; other terminals, including WezTerm for now, show the picture's name instead. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded, up to 10 MB each. Your `gh` login token is sent to github.com only, because attachments in private repositories need it; it is not sent on to GitHub's storage host. Anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures; it draws generated ones.
 - A failed load keeps the last good data on screen and retries by itself after 1, 2, 4 and 8 minutes, then every 10 minutes; Ctrl+R retries at once, pictures and your avatar included, and the status line shows a `ctrl+r retry` hint.

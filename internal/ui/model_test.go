@@ -472,8 +472,10 @@ func TestHiddenHeaderLoadsOnlyTheView(t *testing.T) {
 		t.Fatal("the header refreshes the viewer and every repository's PRs")
 	}
 	press(m, "b", "b", "b") // ascii, text, off
-	if got := m.wanted(); len(got) != 0 {
-		t.Fatalf("with the header off only the view's data refreshes, got %v", got)
+	for _, w := range m.wanted() {
+		if w.kind != kindViewer && w.kind != kindPRs {
+			t.Fatalf("with the header off only the view's data and the badges' PRs refresh, got %v", m.wanted())
+		}
 	}
 }
 
@@ -985,6 +987,11 @@ func TestRenderFitsTerminal(t *testing.T) {
 		check("help")
 		press(m, "esc", "f2")
 		check("light")
+		for _, mode := range []string{"full", "ascii", "text"} { // the badges in each header mode
+			press(m, "b")
+			check("badges in the " + mode + " header")
+		}
+		press(m, "b")
 		press(m, "g", "c", "a", "enter")
 		check("add repositories")
 		press(m, "esc")
@@ -1123,12 +1130,14 @@ func TestProfileStatsCountTheViewer(t *testing.T) {
 		{Author: "me", Checks: gitx.ChecksFailing, Review: "CHANGES_REQUESTED"},
 		{Author: "other", ForMe: true, URL: "https://github.com/acme/api/pull/1"},
 		{Author: "other"},
+		{Author: "me", Review: "APPROVED", Checks: gitx.ChecksPassing, URL: "https://github.com/acme/api/pull/2"},
+		{Author: "me", Review: "APPROVED", Checks: gitx.ChecksPassing, Draft: true}, // a draft is not ready
 	}
 	m.repos[3].gh = m.repos[0].gh // a second clone of the same GitHub repository
 	m.repos[1].log.val = []gitx.Commit{{Author: "Me", When: now.Add(-time.Hour)}, {Author: "Me", When: now.AddDate(0, 0, -8)}, {Author: "You", When: now}}
 	m.repos[2].summary = slot[gitx.Summary]{loaded: true, val: gitx.Summary{Unstaged: 1}}
 	got := m.profileStats(now)
-	want := profileStats{requested: 1, mine: 1, failing: 1, changes: 1, commits: 1, dirty: 1}
+	want := profileStats{requested: 1, mine: 3, failing: 1, changes: 1, commits: 1, dirty: 1, ready: 1}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
@@ -1277,6 +1286,22 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	press(m, "enter")
 	if i := slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == "infra" }); m.repos[i].cfg.Status != config.StatusOK {
 		t.Fatal("infra should be available after f")
+	}
+	// Badges: review requests and ready-to-merge, in the banner, and n to list each.
+	if h := ansi.Strip(strings.Join(m.profileLines(), "\n")); !strings.Contains(h, "🔔") || !strings.Contains(h, "✔") {
+		t.Fatalf("demo should show both badges in the banner:\n%s", h)
+	}
+	press(m, "n")
+	if m.view != viewPRs || len(m.prList()) == 0 || !m.prList()[0].ForMe {
+		t.Fatal("n should list the review requests")
+	}
+	press(m, "n")
+	if len(m.prList()) == 0 || !m.ready(m.prList()[0]) || !strings.Contains(ansi.Strip(m.render()), "✔") {
+		t.Fatal("n again should list PRs ready to merge, marked ✔")
+	}
+	press(m, "n")
+	if m.filters[viewPRs] != "" {
+		t.Fatal("a third n should show every PR")
 	}
 	for _, mode := range []Profile{ProfileASCII, ProfileText, ProfileOff, ProfileFull} {
 		press(m, "b")
@@ -1546,6 +1571,35 @@ func TestRepositoryEditsNeedAReadableConfig(t *testing.T) {
 	}
 }
 
+func TestReviewBadge(t *testing.T) {
+	if capped(9) != "9" || capped(10) != "9+" {
+		t.Fatal("counts above 9 show as 9+")
+	}
+	m := setup(t, demoOpts(), 120, 30)
+	if !m.alertSet || m.pulse != 0 {
+		t.Fatal("the count climbing as PRs first load must not pulse")
+	}
+	n := m.profileStats(clock()).requested
+	m.alertBase = n - 1
+	if cmd := m.watchReviews(); cmd == nil || m.pulse != pulseBeats {
+		t.Fatal("a rise in review requests should pulse the badge")
+	}
+	dim := m.badges(false)
+	m.onPulse()
+	if m.badges(false) == dim {
+		t.Fatal("the pulse should alternate the badge's look")
+	}
+	for m.pulse > 0 {
+		m.onPulse()
+	}
+	if m.watchReviews() != nil || m.pulse != 0 {
+		t.Fatal("an unchanged count should not pulse again")
+	}
+	if m.View().WindowTitle != "git-tui ("+capped(n)+")" {
+		t.Fatalf("the window title should carry the count: %q", m.View().WindowTitle)
+	}
+}
+
 func TestVersionShown(t *testing.T) {
 	o := demoOpts()
 	o.Version, o.Executable = "v9.9.9", "/usr/local/bin/git-tui"
@@ -1629,7 +1683,9 @@ func TestStackedRowsGiveTheTitleItsOwnLine(t *testing.T) {
 }
 
 func TestHeaderKeepsTabsBeforeTheAge(t *testing.T) {
-	m := setup(t, demoOpts(), 200, 30)
+	o := demoOpts()
+	o.Profile = ProfileFull // the badges sit in the banner, leaving the tab bar as it was
+	m := setup(t, o, 200, 30)
 	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "Updated just now") {
 		t.Fatalf("a wide header has every tab and the full age: %q", h)
 	}
@@ -1640,6 +1696,20 @@ func TestHeaderKeepsTabsBeforeTheAge(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	if h := ansi.Strip(m.header()); strings.Contains(h, "Connections") || !strings.Contains(h, "Updated just now") {
 		t.Fatalf("when the tabs cannot fit anyway, the full age shows: %q", h)
+	}
+
+	// With the header off the badges join the tab bar and outrank the age, the repository and the zone,
+	// whichever of those fit; how many do depends on the time zone's name, so only the order is checked.
+	m = setup(t, demoOpts(), 140, 30)
+	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "🔔 3") || !strings.Contains(h, "✔ 2") {
+		t.Fatalf("at 140 columns the tabs and both badges stay: %q", h)
+	}
+	press(m, "g", "p")
+	for _, w := range []int{80, 60} { // the tabs collapse to the current one, which the labels must not cut
+		m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		if h := ansi.Strip(m.header()); !strings.Contains(h, "Pull requests") || !strings.Contains(h, "🔔 3") || !strings.Contains(h, "✔ 2") {
+			t.Fatalf("at %d columns the current view and both badges stay: %q", w, h)
+		}
 	}
 }
 

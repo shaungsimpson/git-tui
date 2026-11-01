@@ -145,6 +145,10 @@ func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
 			Files: []PRFile{{"app/maths.ts", 12, 3}, {"app/maths.test.ts", 40, 0}},
 			ForMe: i == 1,
 		})
+		if i == 2 { // the demo viewer's PR, ready to merge
+			p := &prs[len(prs)-1]
+			p.Author, p.Review, p.Checks, p.Draft = "alice", "APPROVED", ChecksPassing, false
+		}
 	}
 	return prs, nil
 }

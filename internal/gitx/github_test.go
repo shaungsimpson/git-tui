@@ -44,13 +44,16 @@ func TestParsePRsCheckRollup(t *testing.T) {
 	                       {"__typename":"StatusContext","state":"SUCCESS"}]},
 	 {"number":4,"title":"None","author":{"login":"d"},"statusCheckRollup":[],
 	  "body":"Why\n\n![shot](https://github.com/user-attachments/assets/x)",
-	  "files":[{"path":"a.go","additions":3,"deletions":1,"changeType":"MODIFIED"}]}
+	  "files":[{"path":"a.go","additions":3,"deletions":1,"changeType":"MODIFIED"}]},
+	 {"number":5,"title":"Stale","author":{"login":"e"},
+	  "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+	                       {"__typename":"CheckRun","status":"COMPLETED","conclusion":"STALE"}]}
 	]`
 	prs, err := ParsePRs("backend", out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []CheckState{ChecksPassing, ChecksFailing, ChecksPending, ChecksNone}
+	want := []CheckState{ChecksPassing, ChecksFailing, ChecksPending, ChecksNone, ChecksPending}
 	for i, p := range prs {
 		if p.Checks != want[i] {
 			t.Errorf("#%d %q: checks %v, want %v", p.Number, p.Title, p.Checks, want[i])

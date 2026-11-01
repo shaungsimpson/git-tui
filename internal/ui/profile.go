@@ -159,8 +159,8 @@ func sized(raw string, px int) string {
 
 // profileStats is what the header counts across every configured repository, whatever the sidebar selects.
 type profileStats struct {
-	requested, mine, failing, changes, commits, dirty int
-	loading                                           bool
+	requested, mine, failing, changes, commits, dirty, ready int
+	loading                                                  bool
 }
 
 func (m *Model) profileStats(now time.Time) profileStats {
@@ -177,6 +177,9 @@ func (m *Model) profileStats(now time.Time) profileStats {
 		}
 		seen[r.gh] = true
 		for _, p := range prs {
+			if m.ready(p) {
+				s.ready++
+			}
 			if p.ForMe {
 				s.requested++
 			}
@@ -276,7 +279,7 @@ func (m *Model) profileLines() []string {
 			handle = "@" + v.Login
 		}
 		who := m.st.marker.Render(" " + clean(firstOf(handle, "You")))
-		return []string{who + sep + strings.Join(m.counts(s, g, true), sep) + busy}
+		return []string{m.withBadges(who+sep+strings.Join(m.counts(s, g, true), sep)+busy, true)}
 	}
 
 	name := m.st.marker.Render(clean(firstOf(v.Name, v.GitName, v.Login, "You")))
@@ -314,6 +317,7 @@ func (m *Model) profileLines() []string {
 	for i := range lines {
 		lines[i] = " " + art[i] + "  " + info[i]
 	}
+	lines[0] = m.withBadges(lines[0], shown == ProfileASCII)
 	return lines
 }
 

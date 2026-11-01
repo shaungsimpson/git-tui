@@ -84,6 +84,9 @@ func (m *Model) View() tea.View {
 	v.BackgroundColor = m.st.bg
 	v.ForegroundColor = m.st.fg
 	v.WindowTitle = "git-tui"
+	if n := m.profileStats(clock()).requested; n > 0 {
+		v.WindowTitle += " (" + capped(n) + ")" // seen from another tab or window
+	}
 	return v
 }
 
@@ -212,19 +215,34 @@ func (m *Model) header() string {
 		}
 	}
 	fresh := m.freshness()
-	right := func(age string) string { return m.st.muted.Render(joinSet(" · ", m.repoLabel(), m.zone(), age) + " ") }
+	badges := "" // with no header to hold them, the badges sit here
+	if m.profileShown() == ProfileOff {
+		if b := m.badges(false); b != "" {
+			badges = b + "  "
+		}
+	}
+	right := func(parts ...string) string { return badges + m.st.muted.Render(joinSet(" · ", parts...)+" ") }
 	full := left + " " + strings.Join(tabs, "  ")
 	// The tabs matter more than the data's age: shorten the age, then drop it, before collapsing the tabs.
+	// Badges outrank the repository and zone labels, which go next.
 	short := strings.TrimPrefix(fresh, "Updated ") // "Just now" or "3m ago"; a number has no word to capitalise
 	if short != "" {
 		short = strings.ToUpper(short[:1]) + short[1:]
 	}
-	for _, age := range []string{fresh, short, ""} {
-		if r := right(age); lipgloss.Width(full)+lipgloss.Width(r)+1 <= m.width {
-			return fit(full, r, m.width)
+	label, zone := m.repoLabel(), m.zone()
+	tries := [][]string{{label, zone, fresh}, {label, zone, short}, {label, zone}}
+	if badges != "" {
+		tries = append(tries, []string{zone, short}, []string{zone}, nil)
+	}
+	active := left + " " + m.st.tabActive.Render(viewNames[m.view])
+	for _, bar := range []string{full, active} { // with the tabs collapsed, the right side gives way again
+		for _, parts := range tries {
+			if r := right(parts...); lipgloss.Width(bar)+lipgloss.Width(r)+1 <= m.width {
+				return fit(bar, r, m.width)
+			}
 		}
 	}
-	return fit(left+" "+m.st.tabActive.Render(viewNames[m.view]), right(fresh), m.width)
+	return fit(active, right(label, zone, fresh), m.width)
 }
 
 func (m *Model) repoBar() string {
@@ -534,11 +552,14 @@ func (m *Model) reviewText(p gitx.PR) (string, lipgloss.Style) {
 func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	glyph := map[gitx.CheckState]string{gitx.ChecksNone: " ", gitx.ChecksPassing: "·", gitx.ChecksPending: "…", gitx.ChecksFailing: "!"}[p.Checks]
 	review, rst := m.reviewText(p)
-	star := " " // marks PRs waiting on the viewer's review
-	if p.ForMe {
+	star, sst := " ", m.st.accent // marks PRs waiting on the viewer's review, or the viewer's ready to merge
+	switch {
+	case p.ForMe:
 		star = "★"
+	case m.ready(p):
+		star, sst = "✔", m.st.ok
 	}
-	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}, {star + " ", m.st.accent}}
+	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}, {star + " ", sst}}
 	if showRepo {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
@@ -561,6 +582,9 @@ func (m *Model) prDetail(p gitx.PR) []string {
 	}
 	if p.ForMe {
 		lines = slices.Insert(lines, 5, m.kv("Requested", "★ your review", m.st.accent))
+	}
+	if m.ready(p) {
+		lines = slices.Insert(lines, 5, m.kv("Ready", "✔ approved, checks passing", m.st.ok))
 	}
 	if strings.TrimSpace(p.Body) != "" {
 		lines = append(lines, "", m.st.title.Render(" Description"))

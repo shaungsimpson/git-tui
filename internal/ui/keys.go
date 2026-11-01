@@ -24,6 +24,7 @@ const (
 	actTime
 	actProfile
 	actAdd
+	actAlerts
 	actFix
 	actRename
 	actRemove
@@ -49,14 +50,14 @@ func bind(label, desc string, keys ...string) key.Binding {
 var actions = []action{
 	{id: actUp, key: bind("j/k", "move", "k", "up"), hint: true},
 	{id: actDown, key: bind("", "", "j", "down")},
-	{id: actFocusNext, key: bind("tab", "next pane", "tab"), hint: true},
-	{id: actFocusPrev, key: bind("shift+tab", "previous pane", "shift+tab")},
+	{id: actFocusNext, key: bind("tab", "next / previous pane", "tab"), hint: true},
+	{id: actFocusPrev, key: bind("", "", "shift+tab")}, // tab's label covers it, as j/k does for down
 	{id: actOpen, key: bind("enter", "open", "enter"), hint: true, when: (*Model).canOpen},
 	{id: actBrowse, key: bind("o", "open in browser", "o"), hint: true, when: (*Model).canBrowse},
 	{id: actDiff, key: bind("d", "diff", "d"), hint: true, when: (*Model).canDiff},
 	{id: actTab, key: bind("t", "new tab", "t"), hint: true, when: (*Model).canTab},
-	{id: actSplitRight, key: bind("T", "split right", "T", "shift+t"), when: (*Model).canTab},
-	{id: actSplitDown, key: bind("ctrl+t", "split down", "ctrl+t"), when: (*Model).canTab},
+	{id: actSplitRight, key: bind("T/ctrl+t", "split right/down", "T", "shift+t"), when: (*Model).canTab},
+	{id: actSplitDown, key: bind("", "", "ctrl+t"), when: (*Model).canTab},
 	{id: actBack, key: bind("esc", "back", "esc"), hint: true, when: (*Model).canBack},
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
 	{id: actAdd, key: bind("a", "add repositories", "a"), hint: true, when: (*Model).canAdd},
@@ -66,6 +67,7 @@ var actions = []action{
 	{id: actMoveUp, key: bind("K/J", "move repository up/down", "K", "shift+k"), when: (*Model).canManage},
 	{id: actMoveDown, key: bind("", "", "J", "shift+j"), when: (*Model).canManage},
 	{id: actGo, key: bind("g", "go to view…", "g")},
+	{id: actAlerts, key: bind("n", "review requests, then ready to merge", "n")},
 	{id: actHelp, key: bind("?", "help", "?"), hint: true},
 	{id: actProfile, key: bind("b", "profile header: full, ASCII, text, off", "b")}, // pinned right in the footer
 	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r"), hint: true},          // after help, so help survives a narrow footer

@@ -280,9 +280,12 @@ type Model struct {
 	prevFilt  string
 	renaming  bool
 
-	scan    scanState
-	confirm string         // a yes/no question in the footer
-	onYes   func() tea.Cmd // what y does
+	scan      scanState
+	confirm   string         // a yes/no question in the footer
+	onYes     func() tea.Cmd // what y does
+	alertBase int            // the review count the pulse compares against
+	alertSet  bool           // alertBase is known: every repository's PRs have been read once
+	pulse     int            // beats left of the review badge's pulse
 
 	gens int // issues slot generations, unique across slots so a result never lands on another repository
 
@@ -405,6 +408,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
+	case pulseMsg:
+		return m, m.onPulse()
 	case resultMsg:
 		return m, tea.Batch(m.applyResult(msg), m.ensurePics()) // a PR list arriving can reveal pictures
 	default:
@@ -592,6 +597,8 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return m.moveRepo(-1)
 	case actMoveDown:
 		return m.moveRepo(1)
+	case actAlerts:
+		return m.showAlerts()
 	case actHelp:
 		m.help = true
 	case actTheme:
@@ -1139,11 +1146,21 @@ func (m *Model) activity() []gitx.Commit {
 
 // prList is the open pull requests of the selected repositories, most recently updated first.
 func (m *Model) prList() []gitx.PR {
+	f := m.filters[viewPRs]
+	keep := func(p gitx.PR) bool {
+		switch strings.ToLower(strings.TrimSpace(f)) { // the keywords n sets; they work typed after / too
+		case "is:review":
+			return p.ForMe
+		case "is:ready":
+			return m.ready(p)
+		}
+		return match(f, p.Title, p.Author, p.Branch, p.Repo, "#"+strconv.Itoa(p.Number))
+	}
 	var out []gitx.PR
 	for _, i := range m.ghScope() {
 		for _, p := range m.repos[i].gh.prs.val {
 			p.Repo = m.repos[i].cfg.Name // the folder's current name, whichever clone loaded it
-			if match(m.filters[viewPRs], p.Title, p.Author, p.Branch, p.Repo, "#"+strconv.Itoa(p.Number)) {
+			if keep(p) {
 				out = append(out, p)
 			}
 		}
@@ -1356,6 +1373,8 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	case kindSlug:
 		m.shareGitHub()
 		cmd = m.ensure(false) // the GitHub loads that waited for it
+	case kindPRs:
+		cmd = m.watchReviews()
 	case kindDeps:
 		cmd = m.followDeploy(msg.repo)
 	case kindRuns:
