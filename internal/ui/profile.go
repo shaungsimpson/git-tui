@@ -70,8 +70,11 @@ var fetchAvatar = func(ctx context.Context, src gitx.Source, raw string) (image.
 }
 
 // profileShown is the mode that fits: a banner that would squeeze the panes becomes one line, then nothing.
-func (m *Model) profileShown() Profile {
-	body := m.height - 4 // header, separator, status, footer
+func (m *Model) profileShown() Profile { return m.profileFits(m.footerRows()) }
+
+// profileFits is the mode that fits above a footer of the given number of lines.
+func (m *Model) profileFits(footer int) Profile {
+	body := m.height - 3 - footer // header, separator, status, footer
 	if m.width < 100 {
 		body-- // the repository bar
 	}
@@ -86,8 +89,10 @@ func (m *Model) profileShown() Profile {
 	return ProfileOff
 }
 
-func (m *Model) profileRows() int {
-	switch m.profileShown() {
+func (m *Model) profileRows() int { return rowsOf(m.profileShown()) }
+
+func rowsOf(p Profile) int {
+	switch p {
 	case ProfileOff:
 		return 0
 	case ProfileText:

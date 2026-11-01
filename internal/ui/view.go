@@ -31,7 +31,7 @@ type layout struct {
 }
 
 func (m *Model) layout() layout {
-	l := layout{bodyH: m.height - 4 - m.profileRows()} // header, separator, status, footer, profile
+	l := layout{bodyH: m.height - 3 - m.footerRows() - m.profileRows()} // header, separator, status, footer, profile
 	if m.width < minW || m.height < minH {
 		l.small = true
 		return l
@@ -1165,7 +1165,16 @@ func (m *Model) diffLines(h int) []string {
 	return lines
 }
 
+// footer keeps its height while a question or an input shows one line, so the panes do not jump.
 func (m *Model) footer() string {
+	f := m.footerLines()
+	if m.footerRows() == 2 && !strings.Contains(f, "\n") {
+		return "\n" + f
+	}
+	return f
+}
+
+func (m *Model) footerLines() string {
 	if m.help {
 		return " " + m.st.key.Render("esc") + m.st.muted.Render(" or ") + m.st.key.Render("?") + m.st.muted.Render(" close help")
 	}
@@ -1191,14 +1200,86 @@ func (m *Model) footer() string {
 		return ansi.Truncate(" "+m.st.key.Render("j/k")+m.st.muted.Render(" move  ")+pick+
 			m.st.key.Render("tab")+m.st.muted.Render(" look elsewhere  ")+m.st.key.Render("esc")+m.st.muted.Render(" close"), m.width, "…")
 	}
-	var hints []string
+	hints, right := m.footerHints()
+	room := m.width - lipgloss.Width(right) - 2
+	if m.footerRows() == 1 {
+		return fit(" "+pack(hints, room), right, m.width)
+	}
+	// The first line takes the other shortcuts in order while they fit; the second the rest and the basic ones,
+	// beside the profile toggle.
+	n, used := 0, 1
+	for n < len(hints) && !hints[n].basic && used+lipgloss.Width(hints[n].text) < m.width {
+		used += lipgloss.Width(hints[n].text) + 2
+		n++
+	}
+	return fit(" "+joinHints(hints[:n]), "", m.width) + "\n" + fit(" "+pack(hints[n:], room), right, m.width)
+}
+
+type hint struct {
+	text  string
+	basic bool
+}
+
+// footerHints are the shortcuts the footer offers, in table order, and the profile toggle pinned at its right,
+// naming the current mode.
+func (m *Model) footerHints() ([]hint, string) {
+	var hints []hint
 	for _, a := range actions {
 		if a.hint && a.available(m) {
 			h := a.key.Help()
-			hints = append(hints, m.st.key.Render(h.Key)+" "+m.st.muted.Render(h.Desc))
+			hints = append(hints, hint{m.st.key.Render(h.Key) + " " + m.st.muted.Render(h.Desc), a.basic})
 		}
 	}
-	// The profile toggle stays visible on narrow footers, naming the current mode; the hints give way first.
-	right := m.st.key.Render("b") + m.st.muted.Render(" profile: "+profileNames[m.profile]+" ")
-	return fit(" "+strings.Join(hints, "  "), right, m.width)
+	return hints, m.st.key.Render("b") + m.st.muted.Render(" profile: "+profileNames[m.profile]+" ")
+}
+
+// footerRows is 2 when the shortcuts need a second line and the panes can spare it. The profile header that
+// fits above a one-line footer keeps its rows: the footer's second line gives way first.
+func (m *Model) footerRows() int {
+	if m.help || m.diff.open || m.scan.open { // they replace the panes and need every row
+		return 1
+	}
+	body := m.height - 5 - rowsOf(m.profileFits(1)) // header, separator, status, two footer lines, profile
+	if m.width < 100 {
+		body-- // the repository bar
+	}
+	hints, right := m.footerHints()
+	if body < minBodyH || 1+lipgloss.Width(joinHints(hints))+1+lipgloss.Width(right) <= m.width {
+		return 1
+	}
+	return 2
+}
+
+func joinHints(hints []hint) string {
+	parts := make([]string, len(hints))
+	for i, h := range hints {
+		parts[i] = h.text
+	}
+	return strings.Join(parts, "  ")
+}
+
+// pack fits the hints into w cells in order; when they do not all fit, the others give way before the basic ones.
+func pack(hints []hint, w int) string {
+	if lipgloss.Width(joinHints(hints)) <= w {
+		return joinHints(hints)
+	}
+	need := 1 // the closing "  …", less the separator the last hint does not need
+	for _, h := range hints {
+		if h.basic {
+			need += lipgloss.Width(h.text) + 2
+		}
+	}
+	var kept []hint
+	full := false
+	for _, h := range hints {
+		if !h.basic {
+			if full || need+lipgloss.Width(h.text)+2 > w {
+				full = true
+				continue
+			}
+			need += lipgloss.Width(h.text) + 2
+		}
+		kept = append(kept, h)
+	}
+	return joinHints(kept) + "  …"
 }

@@ -77,6 +77,12 @@ func (m *Model) withBadges(line string, ascii bool) string {
 	return fit(line, b+" ", m.width)
 }
 
+// hasAlerts reports whether a review or ready-to-merge badge is showing, so the footer offers n.
+func (m *Model) hasAlerts() bool {
+	s := m.profileStats(clock())
+	return s.requested > 0 || s.ready > 0
+}
+
 // watchReviews pulses the review badge when the count rises. The count climbing while every repository's PRs
 // first load is not news, so nothing pulses until each has been read once.
 func (m *Model) watchReviews() tea.Cmd {
@@ -92,6 +98,7 @@ func (m *Model) watchReviews() tea.Cmd {
 	if !rose {
 		return nil
 	}
+	m.flash = "Someone asked for your review. Press n to see it."
 	running := m.pulse > 0
 	m.pulse = pulseBeats
 	if running {

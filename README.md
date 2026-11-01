@@ -156,8 +156,8 @@ Two badges stand out at the right of the header's first line whenever there is s
 
 - A red **🔔 3** badge counts the open PRs waiting on your review (the ★ ones), and a green **✔ 2** badge counts your PRs ready to merge. Counts above 9 show as `9+`. A badge is hidden at zero and until pull requests load; if a load fails, the last good count stays.
 - In the ASCII and text headers they are drawn as `[! 3]` and `[ok 2]`. With the header off, or hidden because the window is short, they move to the tab bar, which drops the repository name, then the time zone, before the tabs to make room.
-- When the review count goes up while the app is open, the red badge pulses for about three seconds. While reviews are waiting, the window title reads `git-tui (3)`, so you can see it from another tab.
-- `n` lists the PRs behind them: see [Keyboard](#keyboard).
+- When the review count goes up while the app is open, the red badge pulses for about three seconds and the status line says `Someone asked for your review. Press n to see it.` While reviews are waiting, the window title reads `git-tui (3)`, so you can see it from another tab.
+- `n` lists the PRs behind them, and the footer shows `n reviews / ready to merge` while either badge is lit: see [Keyboard](#keyboard).
 
 Press `b` to cycle it (the choice is remembered), or start with `-profile`:
 
@@ -175,9 +175,11 @@ Press `b` to cycle it (the choice is remembered), or start with `-profile`:
 The header degrades to what the terminal can show:
 
 - Avatar: the real picture, cropped to a circle with an accent-coloured border, in Kitty and Ghostty (outside tmux), coloured half blocks in other terminals with 256 colours or more, characters with fewer colours or `NO_COLOR`, and your initials in a frame until it loads or when there is no picture.
-- Height: the banner becomes the one-line header when it would leave the panes fewer than 10 lines, and is hidden when even that would.
+- Height: the banner becomes the one-line header when it would leave the panes fewer than 10 lines, and is hidden when even that would. The footer's second line gives way before either.
 
 ## Keyboard
+
+The footer lists the shortcuts that apply right now. When they do not fit on one line it takes a second, unless that would leave the panes fewer than 10 lines or shrink the profile header; then the others give way first so `?` help and `Ctrl+R` refresh stay visible. The footer keeps its height while you type a filter or answer a question, so the panes do not jump. `?` lists every key.
 
 | Key               | Action                                                                     |
 |-------------------|----------------------------------------------------------------------------|

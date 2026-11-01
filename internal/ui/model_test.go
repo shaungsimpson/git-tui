@@ -222,6 +222,9 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.header()), "Just now") { // shortened at 140 columns to keep every tab
 		t.Fatal("demo should show how fresh its data is")
 	}
+	if !strings.Contains(ansi.Strip(m.footer()), "n reviews / ready to merge") {
+		t.Fatal("demo footer should say how to reach the review and ready badges")
+	}
 
 	press(m, "g", "p")
 	colours := map[any]bool{}

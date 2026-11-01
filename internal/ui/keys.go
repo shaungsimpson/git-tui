@@ -36,10 +36,11 @@ const (
 // action is the single source for a key's binding, its help label and when it applies.
 // Dispatch and the help/footer rendering both read this table.
 type action struct {
-	id   actionID
-	key  key.Binding
-	hint bool              // shown in the footer
-	when func(*Model) bool // nil means always available
+	id    actionID
+	key   key.Binding
+	hint  bool              // shown in the footer
+	basic bool              // kept when the footer runs out of room
+	when  func(*Model) bool // nil means always available
 }
 
 func bind(label, desc string, keys ...string) key.Binding {
@@ -67,10 +68,10 @@ var actions = []action{
 	{id: actMoveUp, key: bind("K/J", "move repository up/down", "K", "shift+k"), when: (*Model).canManage},
 	{id: actMoveDown, key: bind("", "", "J", "shift+j"), when: (*Model).canManage},
 	{id: actGo, key: bind("g", "go to view…", "g")},
-	{id: actAlerts, key: bind("n", "review requests, then ready to merge", "n")},
-	{id: actHelp, key: bind("?", "help", "?"), hint: true},
+	{id: actAlerts, key: bind("n", "reviews / ready to merge", "n"), hint: true, when: (*Model).hasAlerts},
+	{id: actHelp, key: bind("?", "help", "?"), hint: true, basic: true},
 	{id: actProfile, key: bind("b", "profile header: full, ASCII, text, off", "b")}, // pinned right in the footer
-	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r"), hint: true},          // after help, so help survives a narrow footer
+	{id: actRefresh, key: bind("ctrl+r", "refresh", "ctrl+r"), hint: true, basic: true},
 	{id: actTheme, key: bind("f2", "theme", "f2")},
 	{id: actTime, key: bind("u", "UTC / local times", "u")},
 	{id: actQuit, key: bind("ctrl+c", "quit", "ctrl+c")}, // handled first in handleKey; listed here for help

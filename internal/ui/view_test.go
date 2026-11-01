@@ -310,3 +310,32 @@ func TestHeaderKeepsTabsBeforeTheAge(t *testing.T) {
 		}
 	}
 }
+
+func TestFooterWrapsAndKeepsBasics(t *testing.T) {
+	m := setup(t, demoOpts(), 100, 40)
+	press(m, "g", "p")
+	f := ansi.Strip(m.footer())
+	if m.footerRows() != 2 || strings.Count(f, "\n") != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "ctrl+r refresh") {
+		t.Fatalf("a crowded footer should wrap to two lines with every shortcut:\n%s", f)
+	}
+	body := m.layout().bodyH
+	press(m, "/")
+	if m.layout().bodyH != body || strings.Count(m.footer(), "\n") != 1 {
+		t.Fatal("typing a filter should keep the footer's two lines, so the panes do not jump")
+	}
+	press(m, "esc")
+	o := demoOpts()
+	o.Profile = ProfileFull
+	m = setup(t, o, 120, 19) // the banner just fits above a one-line footer
+	if m.profileShown() != ProfileFull || m.footerRows() != 1 {
+		t.Fatalf("the banner should keep its rows before the footer takes a second line: %v, %d rows", m.profileShown(), m.footerRows())
+	}
+	o = demoOpts()
+	o.Profile = ProfileText
+	m = setup(t, o, 80, 16) // the header's one line leaves no room for a second footer line
+	press(m, "g", "p")
+	f = ansi.Strip(m.footer())
+	if m.footerRows() != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "ctrl+r refresh") || !strings.Contains(f, "…") {
+		t.Fatalf("a one-line footer should drop other shortcuts before help and refresh:\n%s", f)
+	}
+}
