@@ -1,6 +1,8 @@
 package gitx
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -90,5 +92,11 @@ func TestParseViewer(t *testing.T) {
 	}
 	if _, err := ParseViewer(`{"message":"Bad credentials"}`); err == nil {
 		t.Fatal("a response without a login is an error")
+	}
+}
+
+func TestSlugWithoutOrigin(t *testing.T) {
+	if _, err := (Git{}).Slug(context.Background(), gitRepo(t)); !errors.Is(err, ErrNoOrigin) {
+		t.Fatalf("a repository with no origin remote should report ErrNoOrigin, got %v", err)
 	}
 }

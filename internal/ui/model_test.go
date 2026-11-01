@@ -266,6 +266,25 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if i := slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == "infra" }); m.repos[i].cfg.Status != config.StatusOK {
 		t.Fatal("infra should be available after f")
 	}
+	// A repository not pushed to GitHub yet is a note, not a failure.
+	m.selectRepo(1 + slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == "acme-mobile" }))
+	press(m, "g", "p")
+	if s := ansi.Strip(m.statusLine()); !strings.Contains(s, "acme-mobile: no origin remote yet (not pushed to GitHub)") || strings.Contains(s, "retry") {
+		t.Fatalf("demo should show acme-mobile as not pushed yet, without a retry: %q", s)
+	}
+	press(m, "g", "c")
+	m.cursor[viewConnections] = repoRows(m.connections()) + slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == "acme-mobile" })
+	press(m, "r", "ctrl+u")
+	press(m, strings.Split("mobile", "")...)
+	press(m, "enter", "g", "p", "ctrl+r") // reload under the new name
+	m.flash = ""
+	if m.repos[slices.IndexFunc(m.repos, func(r *repoState) bool { return strings.HasSuffix(r.cfg.Path, "acme-mobile") })].cfg.Name != "mobile" {
+		t.Fatal("r should rename acme-mobile")
+	}
+	if s := ansi.Strip(m.statusLine()); !strings.Contains(s, "mobile: no origin remote yet") {
+		t.Fatalf("a renamed unpushed repository should stay unpushed: %q", s)
+	}
+	m.selectRepo(0)
 	// Badges: review requests and ready-to-merge, in the banner, and n to list each.
 	if h := ansi.Strip(strings.Join(m.profileLines(), "\n")); !strings.Contains(h, "🔔") || !strings.Contains(h, "✔") {
 		t.Fatalf("demo should show both badges in the banner:\n%s", h)

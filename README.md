@@ -67,7 +67,7 @@ git-tui tells you when a newer stable release exists, and how to install it by h
 
 - Go 1.26, or Go 1.21 or newer to fetch it: the module declares `go 1.26.0`, and with the default `GOTOOLCHAIN=auto` Go 1.21 and later download 1.26 automatically.
 - `git` on `PATH`.
-- Optional: the GitHub CLI (`gh`), logged in with `gh auth login`, for the Pull requests, Environments and Deploys views. Each repository's `origin` must point at github.com.
+- Optional: the GitHub CLI (`gh`), logged in with `gh auth login`, for the Pull requests, Environments and Deploys views. Each repository's `origin` must point at github.com. A repository with no `origin` remote yet, such as one not pushed to GitHub, is not an error: the status line notes `no origin remote yet (not pushed to GitHub)` and its local views work as usual.
 - A terminal at least 60×16. The sidebar appears from 100 columns and the details pane from 120 columns. When the list is narrower than 100 columns, commit, pull request and deploy rows put their title on a second line and everything else on the first, including the author when it fits; a long author follows the title instead of being cut off.
 
 No Nerd Font or image support is required.
@@ -119,7 +119,7 @@ The time zone (`u`), the profile header style (`b`) and the folder adding reposi
 
 ## Demo mode
 
-`-demo` uses deterministic built-in fixtures. A `DEMO` badge appears in the header, and the status bar says no repositories are read. The fixtures include one repository that fails to read and one that is missing, so you can see the error and unavailable states. Demo mode shows every feature: the profile header with a generated avatar and every count lit, and PR pictures drawn from generated mock screenshots, all without touching the network. The paths it shows are fixtures too (repositories under `(demo)/`, `git` at `/usr/bin/git`, git-tui in `~/go/bin`), so screenshots of it never show your machine's folders or account name. `t`, `T` and `Ctrl+T` are offered in any terminal and say what they would open, without opening anything. Managing repositories works on the list in memory and saves nothing; adding finds fixture folders, including one whose name clashes and the folder the missing `infra` repository moved to. "This week" counts back from the fixtures' own date. Normal mode never falls back to fixtures.
+`-demo` uses deterministic built-in fixtures. A `DEMO` badge appears in the header, and the status bar says no repositories are read. The fixtures include one repository that fails to read and one that is missing, so you can see the error and unavailable states; among the folders you can add, `acme-mobile` has not been pushed to GitHub yet. Demo mode shows every feature: the profile header with a generated avatar and every count lit, and PR pictures drawn from generated mock screenshots, all without touching the network. The paths it shows are fixtures too (repositories under `(demo)/`, `git` at `/usr/bin/git`, git-tui in `~/go/bin`), so screenshots of it never show your machine's folders or account name. `t`, `T` and `Ctrl+T` are offered in any terminal and say what they would open, without opening anything. Managing repositories works on the list in memory and saves nothing; adding finds fixture folders, including one whose name clashes and the folder the missing `infra` repository moved to. "This week" counts back from the fixtures' own date. Normal mode never falls back to fixtures.
 
 ## Views
 

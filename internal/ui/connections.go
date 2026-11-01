@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/shaungsimpson/git-tui/internal/config"
+	"github.com/shaungsimpson/git-tui/internal/gitx"
 )
 
 type level int
@@ -131,7 +132,7 @@ func (m *Model) githubRow(name, view, what string, state func(*repoState) (bool,
 		if done {
 			loaded++
 		}
-		if err != nil {
+		if err != nil && !errors.Is(err, gitx.ErrNoOrigin) { // not pushed yet is not a gh failure
 			errs = append(errs, clean(m.repos[i].cfg.Name)+": "+clean(err.Error()))
 		}
 	}

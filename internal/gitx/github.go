@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"net/url"
@@ -112,10 +113,16 @@ func GHToken(ctx context.Context) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
+// ErrNoOrigin is a repository with no origin remote, usually one not pushed to GitHub yet. It is not a failure.
+var ErrNoOrigin = errors.New("no origin remote yet (not pushed to GitHub)")
+
 // Slug is the GitHub "owner/name" of the repository's origin remote.
 func (g Git) Slug(ctx context.Context, dir string) (string, error) {
 	url, err := g.run(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {
+		if strings.Contains(err.Error(), "No such remote") { // LC_ALL=C keeps git's wording stable
+			return "", ErrNoOrigin
+		}
 		return "", err
 	}
 	slug, ok := RepoSlug(url)

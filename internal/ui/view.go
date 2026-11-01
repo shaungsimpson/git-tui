@@ -1051,13 +1051,17 @@ func (m *Model) helpLines() []string {
 type health struct {
 	loading int
 	errs    []string
+	notes   []string // not failures, such as a repository not pushed to GitHub yet
 }
 
 func addHealth[T any](h *health, name string, s *slot[T]) {
 	if s.loading {
 		h.loading++
 	}
-	if s.err != nil {
+	switch {
+	case errors.Is(s.err, gitx.ErrNoOrigin):
+		h.notes = append(h.notes, clean(name)+": "+s.err.Error())
+	case s.err != nil:
 		h.errs = append(h.errs, clean(name)+": "+clean(s.err.Error()))
 	}
 }
@@ -1113,6 +1117,10 @@ func (m *Model) statusLine() string {
 		left = m.st.bad.Render(" " + h.errs[0])
 	case len(h.errs) > 1:
 		left = m.st.bad.Render(fmt.Sprintf(" %d reads failed. First: %s", len(h.errs), h.errs[0]))
+	case len(h.notes) == 1:
+		left = m.st.muted.Render(" " + h.notes[0])
+	case len(h.notes) > 1:
+		left = m.st.muted.Render(fmt.Sprintf(" %d repositories have no origin remote yet (not pushed to GitHub)", len(h.notes)))
 	case m.opts.Demo:
 		left = m.st.warn.Render(" Demo mode: fixture data only, no repositories are read")
 	case m.opts.ConfigErr != nil:

@@ -14,7 +14,8 @@ import (
 var DemoRepos = []string{"backend", "frontend", "personal-site", "legacy-api"}
 
 // DemoFolders are what adding repositories finds in demo mode, relative to the folder it looks in: one already
-// configured, two new, one whose name clashes, and the missing "infra" repository moved to a new folder.
+// configured, two new (acme-mobile not pushed to GitHub yet), one whose name clashes, and the missing "infra"
+// repository moved to a new folder.
 var DemoFolders = []string{"backend", "acme-mobile", "acme-web", "client-x/backend", "platform/infra"}
 
 // Demo returns deterministic fixture data. It is only used when the user passes -demo.
@@ -53,6 +54,18 @@ func demoErr(repo string) error {
 	return nil
 }
 
+// demoUnpushed reports the acme-mobile folder, which has no origin remote. It goes by folder, not name, so
+// renaming the repository keeps it unpushed.
+func demoUnpushed(dir string) bool { return dir[strings.LastIndex(dir, "/")+1:] == "acme-mobile" }
+
+// demoGHErr is demoErr for GitHub reads, which also fail on a folder with no origin remote.
+func demoGHErr(repo, dir string) error {
+	if demoUnpushed(dir) {
+		return ErrNoOrigin
+	}
+	return demoErr(repo)
+}
+
 func demoCommits(repo string, n, offset int) []Commit {
 	seed := len(repo)
 	commits := make([]Commit, 0, n)
@@ -70,12 +83,15 @@ func demoCommits(repo string, n, offset int) []Commit {
 	return commits
 }
 
-func (Demo) Summary(_ context.Context, repo, _ string) (Summary, error) {
+func (Demo) Summary(_ context.Context, repo, dir string) (Summary, error) {
 	if err := demoErr(repo); err != nil {
 		return Summary{}, err
 	}
 	last := demoCommits(repo, 1, 0)[0]
 	s := Summary{Branch: "main", Head: last.Hash, Upstream: "origin/main", HasAB: true, Last: &last}
+	if demoUnpushed(dir) {
+		s.Upstream, s.HasAB = "", false
+	}
 	if repo == "frontend" {
 		s.Branch, s.Upstream, s.Ahead, s.Behind = "feature/dark-mode-v9", "origin/feature/dark-mode-v9", 2, 1
 		s.Staged, s.Unstaged, s.Untracked = 1, 3, 2
@@ -119,8 +135,8 @@ func (Demo) Compare(_ context.Context, repo, _, base, head string) ([]Commit, er
 	return demoCommits(repo, (h-b)*4, (9-h)*4), nil
 }
 
-func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
-	if err := demoErr(repo); err != nil {
+func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
+	if err := demoGHErr(repo, dir); err != nil {
 		return nil, err
 	}
 	// Offset from authors, so the demo viewer (alice) has a failing PR with changes requested.
@@ -155,8 +171,8 @@ func (Demo) PullRequests(_ context.Context, repo, _ string) ([]PR, error) {
 	return prs, nil
 }
 
-func (Demo) Deployments(_ context.Context, repo, _ string) ([]Deployment, error) {
-	if err := demoErr(repo); err != nil {
+func (Demo) Deployments(_ context.Context, repo, dir string) ([]Deployment, error) {
+	if err := demoGHErr(repo, dir); err != nil {
 		return nil, err
 	}
 	envs := []string{"prod", "stage", "dev-2"}
@@ -175,8 +191,8 @@ func (Demo) Deployments(_ context.Context, repo, _ string) ([]Deployment, error)
 	return deps, nil
 }
 
-func (Demo) DeployRuns(_ context.Context, repo, _ string) ([]Run, error) {
-	if err := demoErr(repo); err != nil {
+func (Demo) DeployRuns(_ context.Context, repo, dir string) ([]Run, error) {
+	if err := demoGHErr(repo, dir); err != nil {
 		return nil, err
 	}
 	states := [][2]string{{"in_progress", ""}, {"completed", "success"}, {"completed", "failure"}, {"completed", "success"}}
@@ -207,8 +223,8 @@ func (Demo) Diff(_ context.Context, repo, _ string) ([]string, error) {
 	), nil
 }
 
-func (Demo) PRDiff(_ context.Context, repo, _ string, number int) ([]string, error) {
-	if err := demoErr(repo); err != nil {
+func (Demo) PRDiff(_ context.Context, repo, dir string, number int) ([]string, error) {
+	if err := demoGHErr(repo, dir); err != nil {
 		return nil, err
 	}
 	return []string{
@@ -227,6 +243,9 @@ func (Demo) Viewer(context.Context, string) (Viewer, error) {
 }
 
 func (Demo) Slug(_ context.Context, dir string) (string, error) {
+	if demoUnpushed(dir) {
+		return "", ErrNoOrigin
+	}
 	return "acme/" + dir[strings.LastIndex(dir, "/")+1:], nil
 }
 
