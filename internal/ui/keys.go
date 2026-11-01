@@ -23,6 +23,12 @@ const (
 	actTheme
 	actTime
 	actProfile
+	actAdd
+	actFix
+	actRename
+	actRemove
+	actMoveUp
+	actMoveDown
 	actQuit
 )
 
@@ -53,6 +59,12 @@ var actions = []action{
 	{id: actSplitDown, key: bind("ctrl+t", "split down", "ctrl+t"), when: (*Model).canTab},
 	{id: actBack, key: bind("esc", "back", "esc"), hint: true, when: (*Model).canBack},
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
+	{id: actAdd, key: bind("a", "add repositories", "a"), hint: true, when: (*Model).canAdd},
+	{id: actFix, key: bind("f", "find moved folder", "f"), hint: true, when: (*Model).canFix},
+	{id: actRename, key: bind("r", "rename repository", "r"), when: (*Model).canManage},
+	{id: actRemove, key: bind("x", "remove repository", "x"), when: (*Model).canManage},
+	{id: actMoveUp, key: bind("K/J", "move repository up/down", "K", "shift+k"), when: (*Model).canManage},
+	{id: actMoveDown, key: bind("", "", "J", "shift+j"), when: (*Model).canManage},
 	{id: actGo, key: bind("g", "go to view…", "g")},
 	{id: actHelp, key: bind("?", "help", "?"), hint: true},
 	{id: actProfile, key: bind("b", "profile header: full, ASCII, text, off", "b")}, // pinned right in the footer

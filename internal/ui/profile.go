@@ -168,9 +168,15 @@ func (m *Model) profileStats(now time.Time) profileStats {
 	s := profileStats{loading: m.me.loading}
 	week := now.AddDate(0, 0, -7)
 	isMe := func(name string) bool { return name != "" && (name == v.GitName || name == v.Name) }
+	seen := map[*ghState]bool{} // clones share one GitHub repository's PRs; count them once
 	for _, r := range m.repos {
-		s.loading = s.loading || r.prs.loading || r.log.loading || r.summary.loading
-		for _, p := range r.prs.val {
+		s.loading = s.loading || r.gh.prs.loading || r.log.loading || r.summary.loading
+		prs := r.gh.prs.val
+		if seen[r.gh] {
+			prs = nil
+		}
+		seen[r.gh] = true
+		for _, p := range prs {
 			if p.ForMe {
 				s.requested++
 			}

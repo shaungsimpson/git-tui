@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 )
 
-// State is what the app remembers between runs. It lives apart from the configuration, which people edit by hand.
+// State is what the app remembers between runs. It lives apart from the configuration, which holds the
+// repository list only.
 type State struct {
-	UTC     bool   `json:"utc"`
-	Profile string `json:"profile,omitempty"`
+	UTC      bool   `json:"utc"`
+	Profile  string `json:"profile,omitempty"`
+	ScanRoot string `json:"scanRoot,omitempty"` // where adding repositories last looked
 }
 
 // StatePath is $XDG_STATE_HOME/git-tui/state.json, which defaults to ~/.local/state/git-tui/state.json.
@@ -43,15 +45,20 @@ func SaveState(path string, s State) error {
 	if err != nil {
 		return err
 	}
+	return writeFile(path, append(data, '\n'))
+}
+
+// writeFile replaces path through a temporary file in the same folder, so a crash never leaves half a file.
+func writeFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), "state-*.json")
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(f.Name()) }() // fails harmlessly after the rename
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	if _, err := f.Write(data); err != nil {
 		_ = f.Close() // the write error is the one worth reporting
 		return err
 	}

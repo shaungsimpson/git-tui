@@ -63,15 +63,26 @@ type slot[T any] struct {
 	fails           int       // failures in a row, for the retry backoff
 }
 
+// repoState is one configured folder. Its git data is its own; its GitHub data is shared with every other folder
+// cloned from the same GitHub repository, so clones load it once and list it once.
 type repoState struct {
 	cfg     config.Repo
 	summary slot[gitx.Summary]
 	log     slot[[]gitx.Commit]
 	tags    slot[[]gitx.Tag]
-	prs     slot[[]gitx.PR]
-	deps    slot[[]gitx.Deployment]
-	runs    slot[[]gitx.Run]
+	slug    slot[string] // the GitHub "owner/name" of origin, read once
+	gh      *ghState
 }
+
+// ghState is one GitHub repository's data. Until a folder's slug is known it has a state of its own.
+type ghState struct {
+	slug string
+	prs  slot[[]gitx.PR]
+	deps slot[[]gitx.Deployment]
+	runs slot[[]gitx.Run]
+}
+
+func newRepo(c config.Repo) *repoState { return &repoState{cfg: c, gh: &ghState{}} }
 
 type dataKind int
 
@@ -85,13 +96,21 @@ const (
 	kindDiff
 	kindCompare
 	kindViewer
+	kindScan
+	kindSlug
 )
 
+// github reports whether a kind is GitHub data, shared between clones of one repository.
+func (k dataKind) github() bool { return k == kindPRs || k == kindDeps || k == kindRuns }
+
+// resultMsg is a finished load. store puts it in the slot that asked for it, wherever that repository now sits
+// in the list; repo is the position when it started, for follow-up work only.
 type resultMsg struct {
 	kind      dataKind
 	repo, gen int
 	val       any
 	err       error
+	store     func(resultMsg)
 }
 
 type seqExpiredMsg struct{ gen int }
@@ -230,7 +249,8 @@ type Options struct {
 
 type Model struct {
 	opts  Options
-	repos []repoState
+	repos []*repoState
+	gh    map[string]*ghState // by slug, shared by every folder cloned from that GitHub repository
 
 	width, height  int
 	st             styles
@@ -255,9 +275,16 @@ type Model struct {
 	colours colorprofile.Profile // what the terminal reported; colour avatars need 256 or more
 
 	filters   [viewCount]string
-	input     textinput.Model
+	input     textinput.Model // shared: filtering, renaming and the folder to scan never overlap
 	filtering bool
 	prevFilt  string
+	renaming  bool
+
+	scan    scanState
+	confirm string         // a yes/no question in the footer
+	onYes   func() tea.Cmd // what y does
+
+	gens int // issues slot generations, unique across slots so a result never lands on another repository
 
 	help     bool
 	pendingG bool
@@ -276,9 +303,10 @@ type Model struct {
 }
 
 func New(o Options) *Model {
-	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock()}
+	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
+	m.gh = map[string]*ghState{}
 	for _, r := range o.Repos {
-		m.repos = append(m.repos, repoState{cfg: r})
+		m.repos = append(m.repos, newRepo(r))
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.input = textinput.New()
@@ -333,10 +361,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onRefresh()
 	case tea.PasteMsg:
 		// Only an open text input accepts pasted text; it never reaches workspace shortcuts.
-		if m.filtering {
+		if m.typing() {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
-			m.setFilter(m.input.Value())
+			if m.filtering {
+				m.setFilter(m.input.Value())
+			}
 			return m, tea.Batch(cmd, m.schedulePoll())
 		}
 	case picMsg:
@@ -368,8 +398,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.polling = false
 			// Reload only repositories with a run still going; their results schedule the next tick.
 			var cmds []tea.Cmd
-			for _, i := range m.scope() {
-				if slices.ContainsFunc(m.repos[i].runs.val, gitx.Run.Active) {
+			for _, i := range m.ghScope() {
+				if slices.ContainsFunc(m.repos[i].gh.runs.val, gitx.Run.Active) {
 					cmds = append(cmds, m.load(i, kindRuns, true))
 				}
 			}
@@ -378,7 +408,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resultMsg:
 		return m, tea.Batch(m.applyResult(msg), m.ensurePics()) // a PR list arriving can reveal pictures
 	default:
-		if m.filtering {
+		if m.typing() {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
@@ -397,6 +427,48 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return tea.Quit
 	}
 	m.flash = ""
+	if m.confirm != "" {
+		yes := m.onYes
+		m.confirm, m.onYes = "", nil
+		if s == "y" {
+			return yes()
+		}
+		m.flash = "Nothing changed."
+		return nil
+	}
+	if m.renaming {
+		switch s {
+		case "enter", "esc":
+			m.renaming = false
+			m.input.Blur()
+			if s == "enter" {
+				return m.rename(m.input.Value())
+			}
+			return nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return cmd
+	}
+	if m.scan.open && m.scan.typing {
+		switch s {
+		case "enter":
+			return m.runScan()
+		case "esc":
+			m.input.Blur()
+			if !m.scan.res.loaded && !m.scan.res.loading {
+				m.closeScan() // nothing scanned yet, so esc leaves
+			}
+			m.scan.typing = false
+			return nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return cmd
+	}
+	if m.scan.open {
+		return m.scanKey(s)
+	}
 	if m.filtering {
 		switch s {
 		case "enter":
@@ -486,6 +558,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 		m.back()
 	case actFilter:
 		m.filtering = true
+		m.input.Prompt = "/"
 		m.prevFilt = m.filters[m.view]
 		m.input.SetValue(m.prevFilt)
 		m.input.CursorEnd()
@@ -507,6 +580,18 @@ func (m *Model) do(id actionID) tea.Cmd {
 			m.avatar.url = ""
 		}
 		return m.ensure(true)
+	case actAdd:
+		return m.openScan(-1)
+	case actFix:
+		return m.openScan(m.connRepo())
+	case actRename:
+		return m.startRename()
+	case actRemove:
+		m.askRemove()
+	case actMoveUp:
+		return m.moveRepo(-1)
+	case actMoveDown:
+		return m.moveRepo(1)
 	case actHelp:
 		m.help = true
 	case actTheme:
@@ -523,7 +608,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actDiff:
 		src := m.opts.Source
 		if p, ok := m.selectedPR(); ok {
-			i := slices.IndexFunc(m.repos, func(r repoState) bool { return r.cfg.Name == p.Repo })
+			i := slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == p.Repo })
 			if i < 0 {
 				return nil
 			}
@@ -929,6 +1014,9 @@ func (m *Model) back() {
 	}
 }
 
+// typing reports whether a text input has the keyboard.
+func (m *Model) typing() bool { return m.filtering || m.renaming || m.scan.typing }
+
 func (m *Model) filterable() bool {
 	switch m.view {
 	case viewConnections:
@@ -948,7 +1036,7 @@ func (m *Model) selected() *repoState {
 	if m.repo == 0 || m.repo > len(m.repos) {
 		return nil
 	}
-	return &m.repos[m.repo-1]
+	return m.repos[m.repo-1]
 }
 
 // scope is the repositories the current repository selection covers.
@@ -961,6 +1049,20 @@ func (m *Model) scope() []int {
 		all = append(all, i)
 	}
 	return all
+}
+
+// ghScope is the selected repositories with each GitHub repository once: the first folder cloned from it
+// stands for the others.
+func (m *Model) ghScope() []int {
+	seen := map[*ghState]bool{}
+	var out []int
+	for _, i := range m.scope() {
+		if g := m.repos[i].gh; !seen[g] {
+			seen[g] = true
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // ---- lists ----
@@ -1038,8 +1140,9 @@ func (m *Model) activity() []gitx.Commit {
 // prList is the open pull requests of the selected repositories, most recently updated first.
 func (m *Model) prList() []gitx.PR {
 	var out []gitx.PR
-	for _, i := range m.scope() {
-		for _, p := range m.repos[i].prs.val {
+	for _, i := range m.ghScope() {
+		for _, p := range m.repos[i].gh.prs.val {
+			p.Repo = m.repos[i].cfg.Name // the folder's current name, whichever clone loaded it
 			if match(m.filters[viewPRs], p.Title, p.Author, p.Branch, p.Repo, "#"+strconv.Itoa(p.Number)) {
 				out = append(out, p)
 			}
@@ -1052,8 +1155,9 @@ func (m *Model) prList() []gitx.PR {
 // envList is every recorded environment of the selected repositories, most recently deployed first.
 func (m *Model) envList() []envRow {
 	var out []envRow
-	for _, i := range m.scope() {
-		for _, d := range m.repos[i].deps.val {
+	for _, i := range m.ghScope() {
+		for _, d := range m.repos[i].gh.deps.val {
+			d.Repo = m.repos[i].cfg.Name
 			if match(m.filters[viewEnvs], d.Environment, d.Repo, d.Ref, d.Commit) {
 				out = append(out, envRow{i, d})
 			}
@@ -1066,8 +1170,9 @@ func (m *Model) envList() []envRow {
 // runList is the deploy runs of the selected repositories, most recently started first.
 func (m *Model) runList() []gitx.Run {
 	var out []gitx.Run
-	for _, i := range m.scope() {
-		for _, r := range m.repos[i].runs.val {
+	for _, i := range m.ghScope() {
+		for _, r := range m.repos[i].gh.runs.val {
+			r.Repo = m.repos[i].cfg.Name
 			if match(m.filters[viewRuns], r.Workflow, r.Title, r.Branch, r.Repo, r.Status, r.Conclusion) {
 				out = append(out, r)
 			}
@@ -1104,7 +1209,19 @@ func (m *Model) tagList() []gitx.Tag {
 // ensure starts the loads for the data on screen that is stale, or all of it when force is set (Ctrl+R).
 func (m *Model) ensure(force bool) tea.Cmd {
 	var cmds []tea.Cmd
+	type shared struct {
+		gh   *ghState
+		kind dataKind
+	}
+	once := map[shared]bool{} // clones share GitHub data, so it loads once even when forced
 	for _, w := range m.wanted() {
+		if w.kind.github() {
+			k := shared{m.repos[w.repo].gh, w.kind}
+			if once[k] {
+				continue
+			}
+			once[k] = true
+		}
 		cmds = append(cmds, m.load(w.repo, w.kind, force))
 	}
 	if m.cmpOpen() && (force || due(&m.cmp.res, localAge)) { // an open commit list is git data on screen too
@@ -1120,14 +1237,15 @@ func start[T any](m *Model, s *slot[T], force bool, kind dataKind, repo int, fet
 	if s.cancel != nil {
 		s.cancel()
 	}
-	s.gen++
+	m.gens++
+	s.gen = m.gens
 	ctx, cancel := context.WithCancel(m.ctx)
 	s.cancel, s.loading = cancel, true
 	gen := s.gen
 	return func() tea.Msg {
 		defer cancel()
 		v, err := fetch(ctx)
-		return resultMsg{kind: kind, repo: repo, gen: gen, val: v, err: err}
+		return resultMsg{kind: kind, repo: repo, gen: gen, val: v, err: err, store: func(msg resultMsg) { finish(s, msg) }}
 	}
 }
 
@@ -1148,28 +1266,33 @@ func finish[T any](s *slot[T], msg resultMsg) {
 func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 	if kind == kindViewer {
 		dir := "" // the first usable repository, so per-directory git identities apply
-		if j := slices.IndexFunc(m.repos, func(r repoState) bool { return r.cfg.Status == config.StatusOK }); j >= 0 {
+		if j := slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Status == config.StatusOK }); j >= 0 {
 			dir = m.repos[j].cfg.Path
 		}
 		src := m.opts.Source
 		return start(m, &m.me, force, kind, -1, func(ctx context.Context) (gitx.Viewer, error) { return src.Viewer(ctx, dir) })
 	}
-	r := &m.repos[i]
+	r := m.repos[i]
 	if r.cfg.Status != config.StatusOK {
 		return nil
 	}
 	src, name, dir := m.opts.Source, r.cfg.Name, r.cfg.Path
+	if kind.github() && !r.slug.loaded && (r.slug.err == nil || due(&r.slug, localAge)) {
+		// Which GitHub repository this is decides whose data it shares, so GitHub loads wait for it. A failed
+		// lookup retries with the usual backoff; meanwhile the load goes ahead, so its own error shows.
+		return start(m, &r.slug, false, kindSlug, i, func(ctx context.Context) (string, error) { return src.Slug(ctx, dir) })
+	}
 	switch kind {
 	case kindSummary:
 		return start(m, &r.summary, force, kind, i, func(ctx context.Context) (gitx.Summary, error) { return src.Summary(ctx, name, dir) })
 	case kindLog:
 		return start(m, &r.log, force, kind, i, func(ctx context.Context) ([]gitx.Commit, error) { return src.Log(ctx, name, dir, logDepth) })
 	case kindPRs:
-		return start(m, &r.prs, force, kind, i, func(ctx context.Context) ([]gitx.PR, error) { return src.PullRequests(ctx, name, dir) })
+		return start(m, &r.gh.prs, force, kind, i, func(ctx context.Context) ([]gitx.PR, error) { return src.PullRequests(ctx, name, dir) })
 	case kindDeps:
-		return start(m, &r.deps, force, kind, i, func(ctx context.Context) ([]gitx.Deployment, error) { return src.Deployments(ctx, name, dir) })
+		return start(m, &r.gh.deps, force, kind, i, func(ctx context.Context) ([]gitx.Deployment, error) { return src.Deployments(ctx, name, dir) })
 	case kindRuns:
-		return start(m, &r.runs, force, kind, i, func(ctx context.Context) ([]gitx.Run, error) { return src.DeployRuns(ctx, name, dir) })
+		return start(m, &r.gh.runs, force, kind, i, func(ctx context.Context) ([]gitx.Run, error) { return src.DeployRuns(ctx, name, dir) })
 	default:
 		return start(m, &r.tags, force, kind, i, func(ctx context.Context) ([]gitx.Tag, error) { return src.Tags(ctx, name, dir) })
 	}
@@ -1180,7 +1303,7 @@ func (m *Model) loadCompare() tea.Cmd {
 	if m.cmp.repo < 1 || m.cmp.repo > len(m.repos) {
 		return nil
 	}
-	r := &m.repos[m.cmp.repo-1]
+	r := m.repos[m.cmp.repo-1]
 	src, name, dir, base, head := m.opts.Source, r.cfg.Name, r.cfg.Path, m.cmp.baseRev, m.cmp.headRev
 	return start(m, &m.cmp.res, true, kindCompare, m.cmp.repo, func(ctx context.Context) ([]gitx.Commit, error) {
 		return src.Compare(ctx, name, dir, base, head)
@@ -1222,36 +1345,22 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	if keys := m.rowKeys(m.view); m.cursor[m.view] > 0 && m.cursor[m.view] < len(keys) {
 		keep = keys[m.cursor[m.view]]
 	}
-	if msg.kind == kindDiff {
-		if m.diff.open && msg.repo == m.diff.repo {
-			finish(&m.diff.res, msg)
-		}
-	} else if msg.kind == kindViewer {
-		finish(&m.me, msg)
+	if msg.store != nil {
+		msg.store(msg) // a superseded result is dropped here: its generation no longer matches
+	}
+	switch msg.kind {
+	case kindViewer:
 		cmd = m.ensureAvatar()
-	} else if msg.kind == kindCompare {
-		if msg.repo == m.cmp.repo {
-			finish(&m.cmp.res, msg)
-		}
-	} else if msg.repo >= 0 && msg.repo < len(m.repos) {
-		r := &m.repos[msg.repo]
-		switch msg.kind {
-		case kindSummary:
-			finish(&r.summary, msg)
-		case kindLog:
-			finish(&r.log, msg)
-		case kindTags:
-			finish(&r.tags, msg)
-		case kindPRs:
-			finish(&r.prs, msg)
-		case kindDeps:
-			finish(&r.deps, msg)
-			cmd = m.followDeploy(msg.repo)
-		case kindRuns:
-			finish(&r.runs, msg)
-			if msg.err == nil { // a failed reload stops polling until Ctrl+R
-				cmd = m.schedulePoll()
-			}
+	case kindScan:
+		m.scanned()
+	case kindSlug:
+		m.shareGitHub()
+		cmd = m.ensure(false) // the GitHub loads that waited for it
+	case kindDeps:
+		cmd = m.followDeploy(msg.repo)
+	case kindRuns:
+		if msg.err == nil { // a failed reload stops polling until Ctrl+R
+			cmd = m.schedulePoll()
 		}
 	}
 	if keys := m.rowKeys(m.view); keep != "" {
@@ -1264,12 +1373,30 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	return cmd
 }
 
+// shareGitHub points each folder whose slug is now known at that GitHub repository's shared data.
+func (m *Model) shareGitHub() {
+	for _, r := range m.repos {
+		if !r.slug.loaded || r.gh.slug != "" {
+			continue
+		}
+		g := m.gh[r.slug.val]
+		if g == nil {
+			g = &ghState{slug: r.slug.val}
+			m.gh[r.slug.val] = g
+		}
+		r.gh = g
+	}
+}
+
 // followDeploy reopens an open "not yet deployed" list when reloaded deployments show a newer deployed commit.
 func (m *Model) followDeploy(repo int) tea.Cmd {
 	if !m.cmp.open || m.cmp.view != viewEnvs || m.cmp.repo != repo+1 {
 		return nil
 	}
-	for _, d := range m.repos[repo].deps.val {
+	if repo >= len(m.repos) {
+		return nil
+	}
+	for _, d := range m.repos[repo].gh.deps.val {
 		if d.Environment == m.cmp.base && d.Commit != m.cmp.baseRev && gitx.IsCommitID(d.Commit) {
 			return m.openPending(envRow{repo, d})
 		}

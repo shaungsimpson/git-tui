@@ -112,18 +112,18 @@ func (m *Model) times(w want) (at time.Time, loading bool) {
 	if w.repo < 0 || w.repo >= len(m.repos) {
 		return time.Time{}, false
 	}
-	r := &m.repos[w.repo]
+	r := m.repos[w.repo]
 	switch w.kind {
 	case kindSummary:
 		return r.summary.at, r.summary.loading
 	case kindLog:
 		return r.log.at, r.log.loading
 	case kindPRs:
-		return r.prs.at, r.prs.loading
+		return r.gh.prs.at, r.gh.prs.loading
 	case kindDeps:
-		return r.deps.at, r.deps.loading
+		return r.gh.deps.at, r.gh.deps.loading
 	case kindRuns:
-		return r.runs.at, r.runs.loading
+		return r.gh.runs.at, r.gh.runs.loading
 	case kindTags:
 		return r.tags.at, r.tags.loading
 	}

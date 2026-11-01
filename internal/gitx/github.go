@@ -50,7 +50,7 @@ const ghTimeout = 20 * time.Second // network call, unlike the local git command
 
 // PullRequests lists open pull requests for the repository's origin remote using gh.
 func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
-	slug, err := g.slug(ctx, dir)
+	slug, err := g.Slug(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func MarkRequested(prs []PR, out string) error {
 
 // PRDiff is a pull request's code changes as patch lines.
 func (g Git) PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error) {
-	slug, err := g.slug(ctx, dir)
+	slug, err := g.Slug(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -112,8 +112,8 @@ func GHToken(ctx context.Context) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-// slug is the GitHub "owner/name" of the repository's origin remote.
-func (g Git) slug(ctx context.Context, dir string) (string, error) {
+// Slug is the GitHub "owner/name" of the repository's origin remote.
+func (g Git) Slug(ctx context.Context, dir string) (string, error) {
 	url, err := g.run(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {
 		return "", err

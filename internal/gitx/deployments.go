@@ -29,7 +29,7 @@ type deployNode struct {
 
 // Deployments reads, per environment, the newest successful deployment and any newer unsuccessful attempt.
 func (g Git) Deployments(ctx context.Context, repo, dir string) ([]Deployment, error) {
-	slug, err := g.slug(ctx, dir)
+	slug, err := g.Slug(ctx, dir)
 	if err != nil {
 		return nil, err
 	}

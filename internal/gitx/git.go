@@ -63,6 +63,7 @@ type Source interface {
 	Diff(ctx context.Context, repo, dir string) ([]string, error)
 	PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error)
 	Viewer(ctx context.Context, dir string) (Viewer, error)
+	Slug(ctx context.Context, dir string) (string, error)       // the GitHub "owner/name" of origin
 	Image(ctx context.Context, url string) (image.Image, error) // a picture already checked with termimg.Allowed
 }
 
@@ -217,7 +218,8 @@ func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commi
 // then disables git and gh prompts and optional index writes. It also turns off core.fsmonitor, which a
 // repository's own config could otherwise set to a program that git status runs.
 // shortcut: other programs a repository's config names, such as clean filters (Git LFS is one), still run;
-// configured repositories are trusted, as in your shell. Revisit if the app ever reads repositories it did not clone.
+// configured repositories are trusted, as in your shell. Adding repositories also runs `git remote get-url` in
+// folders not yet configured, which runs none of them. Revisit before running anything else in such a folder.
 func gitEnv(env []string) []string {
 	out := make([]string, 0, len(env)+7)
 	for _, kv := range env {

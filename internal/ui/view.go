@@ -108,6 +108,8 @@ func (m *Model) render() string {
 		rows = append(rows, box(m.helpLines(), m.width, l.bodyH))
 	} else if m.diff.open {
 		rows = append(rows, box(m.diffLines(l.bodyH), m.width, l.bodyH))
+	} else if m.scan.open {
+		rows = append(rows, box(m.scanLines(l.bodyH), m.width, l.bodyH))
 	} else {
 		var cols []string
 		if l.sideW > 0 {
@@ -262,7 +264,7 @@ func (m *Model) sidebarLines(h int) []string {
 	glyphs := []string{" "}
 	for i := range m.repos {
 		names = append(names, clean(m.repos[i].cfg.Name))
-		glyphs = append(glyphs, m.repoGlyph(&m.repos[i]))
+		glyphs = append(glyphs, m.repoGlyph(m.repos[i]))
 	}
 	start := max(0, m.repo-(h-2))
 	for i := start; i < len(names) && len(lines) < h; i++ {
@@ -632,7 +634,7 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 	case viewOverview:
 		rows := m.overviewRows()
 		return fmt.Sprintf("Overview · %d repositories%s", len(m.repos), filter), func(i int) []seg {
-			return m.overviewSegs(&m.repos[rows[i]])
+			return m.overviewSegs(m.repos[rows[i]])
 		}
 	case viewActivity:
 		cs := m.activity()
@@ -734,12 +736,11 @@ func (m *Model) emptyMessage() (string, lipgloss.Style) {
 	if m.view != viewConnections && len(m.repos) == 0 {
 		switch {
 		case errors.Is(m.opts.ConfigErr, config.ErrNotFound):
-			return "No configuration found at " + clean(m.opts.ConfigPath) +
-				". Copy examples/config.example.json there, pass -config FILE, or run with -demo to explore fixture data.", m.st.muted
+			return "No repositories yet. Press a to add some, pass -config FILE, or run with -demo to explore fixture data.", m.st.muted
 		case m.opts.ConfigErr != nil:
 			return "Configuration error: " + clean(m.opts.ConfigErr.Error()), m.st.bad
 		}
-		return "The configuration lists no repositories.", m.st.muted
+		return "The configuration lists no repositories. Press a to add some.", m.st.muted
 	}
 	if f := m.filters[m.view]; f != "" && m.filterable() {
 		return "No matches for \"" + clean(f) + "\". Esc clears the filter.", m.st.muted
@@ -910,7 +911,7 @@ func (m *Model) detailLines() []string {
 	}
 	switch m.view {
 	case viewOverview:
-		r := &m.repos[m.overviewRows()[i]]
+		r := m.repos[m.overviewRows()[i]]
 		return append([]string{" " + m.st.text.Bold(true).Render(clean(r.cfg.Name))}, m.summaryLines(r)...)
 	case viewActivity:
 		return m.commitDetail(m.activity()[i])
@@ -1049,8 +1050,8 @@ func (m *Model) health() health {
 			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].log)
 		}
 	case viewPRs:
-		for _, i := range m.scope() {
-			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].prs)
+		for _, i := range m.ghScope() {
+			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].gh.prs)
 		}
 	case viewRepo:
 		if r := m.selected(); r != nil {
@@ -1062,12 +1063,12 @@ func (m *Model) health() health {
 			addHealth(&h, r.cfg.Name, &r.tags)
 		}
 	case viewEnvs:
-		for _, i := range m.scope() {
-			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].deps)
+		for _, i := range m.ghScope() {
+			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].gh.deps)
 		}
 	case viewRuns:
-		for _, i := range m.scope() {
-			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].runs)
+		for _, i := range m.ghScope() {
+			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].gh.runs)
 		}
 	}
 	if m.cmpOpen() && m.cmp.repo > 0 && m.cmp.repo <= len(m.repos) {
@@ -1148,8 +1149,23 @@ func (m *Model) footer() string {
 		return ansi.Truncate(" "+m.st.key.Render("j/k")+m.st.muted.Render(" scroll  ")+m.st.key.Render("pgup/pgdn")+
 			m.st.muted.Render(" page  ")+m.st.key.Render("esc")+m.st.muted.Render(" close"), m.width, "…")
 	}
-	if m.filtering {
-		return ansi.Truncate(" "+m.input.View()+m.st.muted.Render("  enter apply · esc cancel"), m.width, "…")
+	if m.confirm != "" {
+		return ansi.Truncate(" "+m.st.warn.Render(m.confirm)+"  "+m.st.key.Render("y")+m.st.muted.Render(" yes · any other key no"), m.width, "…")
+	}
+	if m.typing() {
+		hint := "  enter apply · esc cancel"
+		if m.scan.typing {
+			hint = "  enter look · esc cancel"
+		}
+		return ansi.Truncate(" "+m.input.View()+m.st.muted.Render(hint), m.width, "…")
+	}
+	if m.scan.open {
+		pick := m.st.key.Render("space") + m.st.muted.Render(" choose  ") + m.st.key.Render("enter") + m.st.muted.Render(" add  ")
+		if m.scan.fix >= 0 {
+			pick = m.st.key.Render("enter") + m.st.muted.Render(" use this folder  ")
+		}
+		return ansi.Truncate(" "+m.st.key.Render("j/k")+m.st.muted.Render(" move  ")+pick+
+			m.st.key.Render("tab")+m.st.muted.Render(" look elsewhere  ")+m.st.key.Render("esc")+m.st.muted.Render(" close"), m.width, "…")
 	}
 	var hints []string
 	for _, a := range actions {

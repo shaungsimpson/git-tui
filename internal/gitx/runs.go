@@ -33,7 +33,7 @@ func (r Run) Active() bool { return r.Status != "completed" }
 // checks), and runs matching the workflow, event and branch of a run that recorded a GitHub deployment
 // (for example a CI pipeline on main).
 func (g Git) DeployRuns(ctx context.Context, repo, dir string) ([]Run, error) {
-	slug, err := g.slug(ctx, dir)
+	slug, err := g.Slug(ctx, dir)
 	if err != nil {
 		return nil, err
 	}

@@ -65,6 +65,20 @@ func drain(m *Model, cmd tea.Cmd) {
 	}
 }
 
+// answer is the newest result for slot s, as a finished load would send it.
+func answer[T any](s *slot[T], kind dataKind, repo int, val any, err error) resultMsg {
+	s.gen++
+	return resultMsg{kind: kind, repo: repo, gen: s.gen, val: val, err: err, store: func(msg resultMsg) { finish(s, msg) }}
+}
+
+// knowSlugs gives every repository its GitHub name without loading it, for tests that start loads by hand.
+func knowSlugs(m *Model) {
+	for _, r := range m.repos {
+		r.slug = slot[string]{loaded: true, val: "acme/" + r.cfg.Name}
+	}
+	m.shareGitHub()
+}
+
 func setup(t *testing.T, o Options, w, h int) *Model {
 	t.Helper()
 	m := New(o)
@@ -91,6 +105,10 @@ func keyMsg(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl}
 	case "T":
 		return tea.KeyPressMsg{Code: 't', ShiftedCode: 'T', Text: "T", Mod: tea.ModShift}
+	case "J":
+		return tea.KeyPressMsg{Code: 'j', ShiftedCode: 'J', Text: "J", Mod: tea.ModShift}
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "pgdown":
 		return tea.KeyPressMsg{Code: tea.KeyPgDown}
 	case "pgup":
@@ -226,7 +244,12 @@ func TestGoSequenceTimeoutAndReset(t *testing.T) {
 // and commit lists come from the demo.
 type countingSource struct {
 	gitx.Demo
-	calls, compares atomic.Int32
+	calls, compares, prs atomic.Int32
+}
+
+func (c *countingSource) PullRequests(ctx context.Context, repo, dir string) ([]gitx.PR, error) {
+	c.prs.Add(1)
+	return c.Demo.PullRequests(ctx, repo, dir)
 }
 
 func (c *countingSource) Log(_ context.Context, repo, _ string, _ int) ([]gitx.Commit, error) {
@@ -385,9 +408,9 @@ func TestStaleDataReloadsOnKeys(t *testing.T) {
 	if got := m.freshness(); got != "Updated 3m ago" {
 		t.Fatalf("freshness after 3 minutes: %q", got)
 	}
-	m.repos[0].prs = slot[[]gitx.PR]{loaded: true, at: clock()}
+	m.repos[0].gh.prs = slot[[]gitx.PR]{loaded: true, at: clock()}
 	press(m, "g", "p")
-	m.repos[0].prs.loading = true
+	m.repos[0].gh.prs.loading = true
 	if got := m.freshness(); got != "Updating…" {
 		t.Fatalf("freshness while loading: %q", got)
 	}
@@ -455,13 +478,18 @@ func TestHiddenHeaderLoadsOnlyTheView(t *testing.T) {
 }
 
 func TestPullRequestsViewAndConnection(t *testing.T) {
-	m := setup(t, demoOpts(), 140, 40)
-	github := func() connRow { return m.connections()[2] } // GitHub (pull requests)
+	m := New(demoOpts()) // not started, so no PRs have loaded yet
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	knowSlugs(m)
+	github := func() connRow {
+		rows := m.connections()
+		return rows[slices.IndexFunc(rows, func(c connRow) bool { return c.name == "GitHub (pull requests)" })]
+	}
 	if github().state != "not checked yet" {
 		t.Fatalf("before loading: %q", github().state)
 	}
 	m.view = viewPRs
-	first, second := m.load(0, kindPRs, false), m.load(1, kindPRs, false)
+	first, second := m.load(0, kindPRs, true), m.load(1, kindPRs, true)
 	m.Update(first())
 	m.cursor[viewPRs] = 1
 	want := m.prList()[1]
@@ -472,13 +500,13 @@ func TestPullRequestsViewAndConnection(t *testing.T) {
 	if github().state != "available" {
 		t.Fatalf("after loading: %q", github().state)
 	}
-	drain(m, m.load(3, kindPRs, false)) // legacy-api fixture fails
+	drain(m, m.load(3, kindPRs, true)) // legacy-api fixture fails
 	if github().level != levelWarn || !strings.Contains(m.render(), "Pull requests") {
 		t.Fatalf("failure not reported: %+v", github())
 	}
 	press(m, "/", "#", "4", "7")
 	got := m.prList()
-	if len(got) == 0 || len(got) == len(m.repos[0].prs.val)+len(m.repos[1].prs.val) {
+	if len(got) == 0 || len(got) == len(m.repos[0].gh.prs.val)+len(m.repos[1].gh.prs.val) {
 		t.Fatalf("filter #47 kept %d rows", len(got))
 	}
 	for _, p := range got {
@@ -503,15 +531,14 @@ func TestEnvironmentPendingCommits(t *testing.T) {
 		t.Fatal("pending list title missing, or filter offered on it")
 	}
 	// A reload showing a newer deployed commit reopens the list against it.
-	r := &m.repos[envs[0].repo]
-	moved := slices.Clone(r.deps.val)
+	r := m.repos[envs[0].repo]
+	moved := slices.Clone(r.gh.deps.val)
 	for i := range moved {
 		if moved[i].Environment == envs[0].Environment {
 			moved[i].Commit = strings.Repeat("f", 40)
 		}
 	}
-	r.deps.gen++
-	if _, cmd := m.Update(resultMsg{kind: kindDeps, repo: envs[0].repo, gen: r.deps.gen, val: moved}); cmd == nil || m.cmp.baseRev != strings.Repeat("f", 40) {
+	if _, cmd := m.Update(answer(&r.gh.deps, kindDeps, envs[0].repo, moved, nil)); cmd == nil || m.cmp.baseRev != strings.Repeat("f", 40) {
 		t.Fatalf("open list should follow the new deployed commit: %q", m.cmp.baseRev)
 	}
 	if !strings.Contains(m.cmp.title, "fffffff") {
@@ -554,13 +581,11 @@ func TestDeployRunsPolling(t *testing.T) {
 		t.Fatal("a current tick should reload runs and wait for the results to reschedule")
 	}
 	for i := range m.repos {
-		if want := i == 0; m.repos[i].runs.loading != want { // only backend has a running demo deploy
-			t.Fatalf("repo %d reloading=%v; only repositories with a running deploy should reload", i, m.repos[i].runs.loading)
+		if want := i == 0; m.repos[i].gh.runs.loading != want { // only backend has a running demo deploy
+			t.Fatalf("repo %d reloading=%v; only repositories with a running deploy should reload", i, m.repos[i].gh.runs.loading)
 		}
 	}
-	r := &m.repos[0].runs // backend has the running demo deploy
-	r.gen++
-	m.Update(resultMsg{kind: kindRuns, repo: 0, gen: r.gen, err: context.DeadlineExceeded})
+	m.Update(answer(&m.repos[0].gh.runs, kindRuns, 0, nil, context.DeadlineExceeded)) // backend has the running demo deploy
 	if m.polling {
 		t.Fatal("a failed reload must stop polling")
 	}
@@ -603,7 +628,7 @@ func TestOpenPullRequestInBrowser(t *testing.T) {
 		t.Fatal("footer should offer o on pull requests")
 	}
 
-	m.repos[0].prs.val[0].URL = "file:///etc/passwd"
+	m.repos[0].gh.prs.val[0].URL = "file:///etc/passwd"
 	for i, p := range m.prList() {
 		if p.URL == "file:///etc/passwd" {
 			m.cursor[viewPRs] = i
@@ -627,7 +652,7 @@ func TestShortDatesAndFailedRefreshMark(t *testing.T) {
 		t.Fatal("Activity at 140 columns should still show dates")
 	}
 
-	r := &m.repos[0] // loaded earlier; now a refresh fails
+	r := m.repos[0] // loaded earlier; now a refresh fails
 	r.summary.err = context.DeadlineExceeded
 	glyph := m.overviewSegs(r)[0]
 	if glyph.st.Render(glyph.s) != m.st.bad.Render(glyph.s) || !strings.HasPrefix(glyph.s, "!") {
@@ -687,7 +712,7 @@ func TestDiffView(t *testing.T) {
 	press(m, "d")
 	gen := m.diff.res.gen
 	press(m, "esc")
-	m.Update(resultMsg{kind: kindDiff, repo: m.diff.repo, gen: gen, val: []string{"late"}})
+	m.Update(resultMsg{kind: kindDiff, repo: m.diff.repo, gen: gen, val: []string{"late"}, store: func(msg resultMsg) { finish(&m.diff.res, msg) }})
 	if m.diff.open || len(m.diff.res.val) != 0 {
 		t.Fatal("a late diff must not reopen or fill the view")
 	}
@@ -792,9 +817,10 @@ func TestPullRequestPictures(t *testing.T) {
 	o := demoOpts()
 	o.Images = true
 	m := setup(t, o, 140, 40)
-	m.repos[0].prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "UI change", URL: "https://github.com/o/r/pull/1",
+	knowSlugs(m) // the PRs below belong to the shared GitHub data
+	m.repos[0].gh.prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "UI change", URL: "https://github.com/o/r/pull/1",
 		Body: "Before:\n![before](https://github.com/user-attachments/assets/aaa)\n<img src=\"https://evil.example/track.png\">"}}
-	m.repos[0].prs.loaded, m.repos[0].prs.at = true, clock() // fresh, so the cadence keeps these PRs
+	m.repos[0].gh.prs.loaded, m.repos[0].gh.prs.at = true, clock() // fresh, so the cadence keeps these PRs
 	m.selectRepo(1)
 	press(m, "g", "p")
 	if len(fetched) != 1 || fetched[0] != "https://github.com/user-attachments/assets/aaa" {
@@ -847,9 +873,10 @@ func TestPullRequestPictureError(t *testing.T) {
 	o := demoOpts()
 	o.Images = true
 	m := setup(t, o, 140, 40)
-	m.repos[0].prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "x",
+	knowSlugs(m) // the PRs below belong to the shared GitHub data
+	m.repos[0].gh.prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "x",
 		Body: `<img alt="shot" src="https://github.com/user-attachments/assets/aaa">`}}
-	m.repos[0].prs.loaded, m.repos[0].prs.at = true, clock() // fresh, so the cadence keeps these PRs
+	m.repos[0].gh.prs.loaded, m.repos[0].gh.prs.at = true, clock() // fresh, so the cadence keeps these PRs
 	m.selectRepo(1)
 	press(m, "g", "p")
 	if detail := strings.Join(m.detailLines(), "\n"); !strings.Contains(detail, "[image: shot · not shown: HTTP 404]") {
@@ -903,8 +930,7 @@ func TestRefreshKeepsContentOnError(t *testing.T) {
 	m.selectRepo(1)
 	drain(m, m.setView(viewRepo))
 	before := len(m.repos[0].log.val)
-	m.repos[0].log.gen++
-	m.Update(resultMsg{kind: kindLog, repo: 0, gen: m.repos[0].log.gen, err: context.DeadlineExceeded})
+	m.Update(answer(&m.repos[0].log, kindLog, 0, nil, context.DeadlineExceeded))
 	if len(m.repos[0].log.val) != before || m.repos[0].log.err == nil {
 		t.Fatal("failed refresh should keep previous commits and record the error")
 	}
@@ -959,6 +985,9 @@ func TestRenderFitsTerminal(t *testing.T) {
 		check("help")
 		press(m, "esc", "f2")
 		check("light")
+		press(m, "g", "c", "a", "enter")
+		check("add repositories")
+		press(m, "esc")
 	}
 }
 
@@ -971,12 +1000,12 @@ func TestTooSmall(t *testing.T) {
 
 func TestMissingConfigMessage(t *testing.T) {
 	m := setup(t, Options{Source: gitx.Git{}, ConfigPath: "/x/config.json", ConfigErr: config.ErrNotFound}, 100, 30)
-	if out := m.render(); !strings.Contains(out, "No configuration found") {
+	if out := m.render(); !strings.Contains(out, "No repositories yet. Press a") {
 		t.Fatalf("missing-config message not shown:\n%s", out)
 	}
 	press(m, "g", "c")
-	if !strings.Contains(m.render(), "not loaded") {
-		t.Fatal("connections should report the configuration as not loaded")
+	if !strings.Contains(m.render(), "no file yet") {
+		t.Fatal("connections should report that the configuration does not exist yet")
 	}
 }
 
@@ -1090,11 +1119,12 @@ func TestProfileStatsCountTheViewer(t *testing.T) {
 	m := New(demoOpts())
 	now := time.Now()
 	m.me.val = gitx.Viewer{Login: "me", GitName: "Me"}
-	m.repos[0].prs.val = []gitx.PR{
+	m.repos[0].gh.prs.val = []gitx.PR{
 		{Author: "me", Checks: gitx.ChecksFailing, Review: "CHANGES_REQUESTED"},
-		{Author: "other", ForMe: true},
+		{Author: "other", ForMe: true, URL: "https://github.com/acme/api/pull/1"},
 		{Author: "other"},
 	}
+	m.repos[3].gh = m.repos[0].gh // a second clone of the same GitHub repository
 	m.repos[1].log.val = []gitx.Commit{{Author: "Me", When: now.Add(-time.Hour)}, {Author: "Me", When: now.AddDate(0, 0, -8)}, {Author: "You", When: now}}
 	m.repos[2].summary = slot[gitx.Summary]{loaded: true, val: gitx.Summary{Unstaged: 1}}
 	got := m.profileStats(now)
@@ -1229,11 +1259,290 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.Contains(m.flash, "Demo: would open a tab in") {
 		t.Fatalf("demo should show what t does: %q", m.flash)
 	}
+	// Repositories: add from the demo folders (one already configured, one whose name clashes), then find the
+	// missing infra repository in the folder it moved to.
+	press(m, "g", "c", "a", "enter")
+	if len(m.scan.res.val) != len(gitx.DemoFolders) || !m.configured(m.scan.res.val[0].path) {
+		t.Fatalf("demo should find its folders, one already configured: %+v", m.scan.res.val)
+	}
+	press(m, "j", "space", "j", "j", "space", "enter")
+	if m.repos[len(m.repos)-1].cfg.Name != "client-x/backend" {
+		t.Fatalf("demo should show a clashing name prefixed, got %q", m.repos[len(m.repos)-1].cfg.Name)
+	}
+	m.cursor[viewConnections] = repoRows(m.connections()) + slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == "infra" })
+	press(m, "f", "enter")
+	if !strings.Contains(m.flash, "platform/infra") {
+		t.Fatalf("demo should find infra's new folder: %q", m.flash)
+	}
+	press(m, "enter")
+	if i := slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == "infra" }); m.repos[i].cfg.Status != config.StatusOK {
+		t.Fatal("infra should be available after f")
+	}
 	for _, mode := range []Profile{ProfileASCII, ProfileText, ProfileOff, ProfileFull} {
 		press(m, "b")
 		if m.profile != mode {
 			t.Fatalf("b should cycle to %s", profileNames[mode])
 		}
+	}
+}
+
+// gitDirs makes a git repository folder for each path under a new root.
+func gitDirs(t *testing.T, paths ...string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, p := range paths {
+		if err := os.MkdirAll(filepath.Join(root, p, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func savedNames(t *testing.T, path string) string {
+	t.Helper()
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, r := range cfg.Repositories {
+		names = append(names, r.Name)
+	}
+	return strings.Join(names, ",")
+}
+
+func TestManageRepositories(t *testing.T) {
+	root := gitDirs(t, "a", "b", "group/a")
+	path := filepath.Join(t.TempDir(), "git-tui", "config.json")
+	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: path, ConfigErr: config.ErrNotFound}, 120, 30)
+
+	press(m, "a") // offered while nothing is configured
+	if !m.scan.open || !m.scan.typing {
+		t.Fatal("a should open the add screen with the folder to edit")
+	}
+	m.input.SetValue(root)
+	press(m, "enter")
+	if len(m.scan.res.val) != 3 {
+		t.Fatalf("want 3 repositories found, got %+v", m.scan.res.val)
+	}
+	press(m, "space", "j", "space", "j", "space", "enter")
+	if got := savedNames(t, path); got != "a,b,group/a" {
+		t.Fatalf("a name already in use should get its parent folder, got %s", got)
+	}
+	if m.scan.open || len(m.repos) != 3 || m.opts.ConfigErr != nil {
+		t.Fatal("adding should close the screen and show the new list")
+	}
+
+	press(m, "g", "c")
+	m.cursor[viewConnections] = repoRows(m.connections()) // the row for a
+	press(m, "r")
+	m.input.SetValue("b")
+	press(m, "enter")
+	if !strings.Contains(m.flash, "already called b") {
+		t.Fatalf("a duplicate name should be refused: %q", m.flash)
+	}
+	press(m, "r")
+	m.input.SetValue("alpha")
+	press(m, "enter", "J")
+	if got := savedNames(t, path); got != "b,alpha,group/a" {
+		t.Fatalf("rename then J: got %s", got)
+	}
+	if m.connRepo() != 1 {
+		t.Fatal("the cursor should follow the moved repository")
+	}
+	press(m, "x", "n")
+	if len(m.repos) != 3 {
+		t.Fatal("anything but y keeps the repository")
+	}
+	press(m, "x", "y")
+	if got := savedNames(t, path); got != "b,group/a" {
+		t.Fatalf("remove: got %s", got)
+	}
+	if _, err := os.Stat(path + ".bak"); err != nil {
+		t.Fatal("the previous file should be kept as .bak")
+	}
+
+	hand := `{"repositories":[{"name":"by-hand","path":"/by/hand"}]}`
+	if err := os.WriteFile(path, []byte(hand), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.cursor[viewConnections] = repoRows(m.connections())
+	press(m, "J")
+	if data, _ := os.ReadFile(path); string(data) != hand || !strings.Contains(m.flash, "changed outside git-tui") {
+		t.Fatalf("an edit made by hand must not be saved over: %q, %s", m.flash, data)
+	}
+}
+
+func TestClonesShareGitHubData(t *testing.T) {
+	src := &countingSource{}
+	o := demoOpts()
+	o.Source, o.Profile = src, ProfileFull // the header counts every repository's PRs, so they load
+	o.Repos = append(o.Repos, config.Repo{Name: "backend-hotfix", Path: "/hotfix/backend", Status: config.StatusOK})
+	m := setup(t, o, 120, 30)
+	clone := m.repos[len(m.repos)-1]
+	if clone.gh != m.repos[0].gh {
+		t.Fatal("two clones of one GitHub repository should share its data")
+	}
+	if got := src.prs.Load(); got != int32(len(gitx.DemoRepos)) {
+		t.Fatalf("PRs should load once per GitHub repository, got %d loads", got)
+	}
+	press(m, "g", "p")
+	urls := map[string]bool{}
+	for _, p := range m.prList() {
+		if urls[p.URL] {
+			t.Fatalf("%s is listed twice", p.URL)
+		}
+		urls[p.URL] = true
+	}
+	press(m, "ctrl+r")
+	if got := src.prs.Load(); got != 2*int32(len(gitx.DemoRepos)) {
+		t.Fatalf("a forced refresh should still load each GitHub repository once, got %d loads", got)
+	}
+}
+
+// noSlug is a source whose folders have no GitHub remote it can read, until ok is set.
+type noSlug struct {
+	gitx.Demo
+	ok *atomic.Bool
+}
+
+func (s noSlug) Slug(ctx context.Context, dir string) (string, error) {
+	if s.ok.Load() {
+		return s.Demo.Slug(ctx, dir)
+	}
+	return "", errors.New("origin is not a GitHub remote")
+}
+
+func TestUnknownGitHubRepository(t *testing.T) {
+	now := fakeClock(t)
+	ok := &atomic.Bool{}
+	o := demoOpts()
+	o.Source, o.Profile = noSlug{ok: ok}, ProfileFull
+	o.Repos = append(o.Repos, config.Repo{Name: "legacy-hotfix", Path: "/hotfix/legacy-api", Status: config.StatusOK})
+	m := setup(t, o, 120, 30)
+	clone, legacy := m.repos[len(m.repos)-1], m.repos[3]
+	if clone.slug.err == nil || !clone.gh.prs.loaded {
+		t.Fatal("a failed GitHub-name lookup should not hold back the folder's own GitHub loads")
+	}
+	if clone.gh == legacy.gh {
+		t.Fatal("folders whose GitHub repository is unknown cannot share")
+	}
+	ok.Store(true) // the next lookup works, as after a one-off timeout
+	*now = now.Add(maxBackoff)
+	drain(m, m.ensure(false))
+	if clone.gh != legacy.gh {
+		t.Fatal("a failed lookup should retry after the backoff, and then share")
+	}
+	rows := m.connections()
+	if row := rows[slices.IndexFunc(rows, func(c connRow) bool { return c.name == "GitHub (pull requests)" })]; row.state != "1 failed" {
+		t.Fatalf("Connections should count a shared failed load once: %q", row.state)
+	}
+}
+
+func TestReorderKeepsLoadedData(t *testing.T) {
+	src := &countingSource{}
+	o := demoOpts()
+	o.Source = src
+	m := setup(t, o, 120, 30)
+	first, prs := m.repos[0], src.prs.Load()
+	inFlight := m.load(0, kindLog, true)
+	press(m, "g", "c")
+	m.cursor[viewConnections] = repoRows(m.connections())
+	press(m, "J")
+	if m.repos[1] != first || src.prs.Load() != prs {
+		t.Fatal("a reorder should keep each repository's data and reload nothing from GitHub")
+	}
+	m.Update(inFlight()) // started before the reorder, when it was first in the list
+	if first.log.loading || !strings.HasPrefix(first.log.val[0].Subject, "call") {
+		t.Fatal("a load running during a reorder should land on its own repository")
+	}
+}
+
+func TestRenameDuringGitHubLookup(t *testing.T) {
+	m := New(demoOpts())                // not started, so no lookup has run yet
+	lookup := m.load(0, kindPRs, false) // the GitHub name comes first
+	if !m.repos[0].slug.loading {
+		t.Fatal("setup: the GitHub-name lookup should be running")
+	}
+	next := m.repoConfigs()
+	next[0].Name = "renamed"
+	m.applyRepos(next, "")
+	m.Update(lookup())
+	if r := m.repos[0]; r.cfg.Name != "renamed" || !r.slug.loaded || r.gh.slug == "" {
+		t.Fatalf("a lookup running during a rename should still land: %+v", r.slug)
+	}
+}
+
+func TestOneFolderListedTwice(t *testing.T) {
+	o := demoOpts()
+	o.Repos = []config.Repo{{Name: "api", Path: "/demo/api", Status: config.StatusOK}, {Name: "api-again", Path: "/demo/api", Status: config.StatusOK}}
+	m := setup(t, o, 120, 30)
+	first, second := m.repos[0], m.repos[1]
+	next := m.repoConfigs()
+	next[0], next[1] = next[1], next[0]
+	m.applyRepos(next, "")
+	if m.repos[0] != second || m.repos[1] != first || first.cfg.Name != "api" || second.cfg.Name != "api-again" {
+		t.Fatalf("each entry should keep its own state and name: %q, %q", m.repos[0].cfg.Name, m.repos[1].cfg.Name)
+	}
+}
+
+func TestFindMovedFolder(t *testing.T) {
+	root := gitDirs(t, "moved/api")
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := config.Save(path, config.Config{Repositories: []config.Repo{{Name: "api", Path: "/gone/api"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: path, Repos: cfg.Repositories}, 120, 30)
+	press(m, "g", "c")
+	m.cursor[viewConnections] = repoRows(m.connections())
+	press(m, "f")
+	m.input.SetValue(root)
+	press(m, "enter")
+	if !strings.Contains(m.flash, "moved/api") {
+		t.Fatalf("f should find the folder with the old name: %q", m.flash)
+	}
+	press(m, "enter")
+	saved, _ := config.Load(path)
+	if r := saved.Repositories[0]; r.Path != filepath.Join(root, "moved", "api") || r.Status != config.StatusOK {
+		t.Fatalf("the new path should be saved and usable: %+v", r)
+	}
+}
+
+func TestRepositoryEditsNeedAReadableConfig(t *testing.T) {
+	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: "/x/config.json", ConfigErr: errors.New("parse: bad")}, 120, 30)
+	press(m, "g", "c", "a")
+	if m.scan.open {
+		t.Fatal("a configuration that failed to load must not be edited")
+	}
+
+	o := demoOpts()
+	o.Demo, o.ConfigPath = false, t.TempDir() // a folder cannot be read as a file, so nothing is saved
+	m = setup(t, o, 120, 30)
+	press(m, "g", "c")
+	m.cursor[viewConnections] = repoRows(m.connections())
+	press(m, "x", "y")
+	if len(m.repos) != len(o.Repos) || !strings.Contains(m.flash, "Nothing saved") {
+		t.Fatalf("an unreadable file should keep the list and say so: %d, %q", len(m.repos), m.flash)
+	}
+
+	// A file that loads but whose folder cannot be written reaches Save itself, and its error.
+	dir, root := t.TempDir(), gitDirs(t, "a", "b")
+	path := filepath.Join(dir, "config.json")
+	if err := config.Save(path, config.Config{Repositories: []config.Repo{{Name: "a", Path: filepath.Join(root, "a")}, {Name: "b", Path: filepath.Join(root, "b")}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	m = setup(t, Options{Source: gitx.Demo{}, ConfigPath: path, Repos: cfg.Repositories}, 120, 30)
+	press(m, "g", "c")
+	m.cursor[viewConnections] = repoRows(m.connections())
+	press(m, "x", "y")
+	if len(m.repos) != 2 || !strings.Contains(m.flash, "Could not save") {
+		t.Fatalf("a failed save should keep the list and say so: %d, %q", len(m.repos), m.flash)
 	}
 }
 

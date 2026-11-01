@@ -135,9 +135,9 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
 
 ```
 cmd/git-tui        entry point and flags
-internal/config      JSON config loading and per-repository validation, remembered preferences
+internal/config      JSON config loading, saving (Save) and per-repository validation, the repository scan (Scan), remembered preferences
 internal/gitx        read-only git and gh runner, parsers, demo fixtures
-internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go)
+internal/ui          Bubble Tea model (model.go), rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go), managing repositories (repos.go)
 internal/termimg     picture downloads, Kitty graphics, colour-block and character drawing
 scripts              screenshots.sh, behind mise run screenshots
 docs                 this guide and the README's pictures (images/)

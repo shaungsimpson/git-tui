@@ -11,6 +11,10 @@ import (
 // DemoRepos are the repository names the demo fixtures know about. "legacy-api" deliberately fails.
 var DemoRepos = []string{"backend", "frontend", "personal-site", "legacy-api"}
 
+// DemoFolders are what adding repositories finds in demo mode, relative to the folder it looks in: one already
+// configured, two new, one whose name clashes, and the missing "infra" repository moved to a new folder.
+var DemoFolders = []string{"backend", "acme-mobile", "acme-web", "client-x/backend", "platform/infra"}
+
 // Demo returns deterministic fixture data. It is only used when the user passes -demo.
 type Demo struct{}
 
@@ -214,4 +218,8 @@ func (Demo) Viewer(context.Context, string) (Viewer, error) {
 		Company: "Acme", Location: "Remote", Followers: 128, Following: 40, AvatarURL: DemoAvatarURL,
 		GitName: "Alice", GitEmail: "alice@example.com",
 	}, nil
+}
+
+func (Demo) Slug(_ context.Context, dir string) (string, error) {
+	return "acme/" + dir[strings.LastIndex(dir, "/")+1:], nil
 }

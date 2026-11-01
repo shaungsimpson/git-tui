@@ -40,29 +40,15 @@ You need Git, a GitHub account with access to `acme`, and Go 1.21 or newer, whic
 
    Press `?` for the shortcuts and `Ctrl+C` to quit.
 
-3. List the repositories you work on in `~/.config/git-tui/config.json`:
+3. For pull requests, environments, deploys and your profile header, log in to the GitHub CLI once with `gh auth login`. Without it, the local Git views still work.
 
-   ```sh
-   mkdir -p ~/.config/git-tui
-   cat > ~/.config/git-tui/config.json <<'JSON'
-   {
-     "repositories": [
-       { "name": "backend", "path": "~/Code/backend" },
-       { "name": "frontend", "path": "~/Code/frontend" }
-     ]
-   }
-   JSON
-   ```
-
-   Change the paths to where your clones are. [Configuration](#configuration) has the details.
-
-4. For pull requests, environments, deploys and your profile header, log in to the GitHub CLI once with `gh auth login`. Without it, the local Git views still work.
-
-5. Run it:
+4. Run it, then press `a` to add the repositories you work on:
 
    ```sh
    git-tui
    ```
+
+   It looks for git repositories under a folder (`~/Code` to start with; change it as you like), and you press `Space` on each one to add, then `Enter`. Each is named after its GitHub repository, or its folder. [Managing repositories](#managing-repositories) has the rest, and [Configuration](#configuration) the file it writes.
 
 To update later, run the install command again; `git-tui -version` shows what you have, and so does the Connections view.
 
@@ -94,15 +80,33 @@ The file is selected in this order:
 2. `$GIT_TUI_CONFIG`
 3. `$XDG_CONFIG_HOME/git-tui/config.json`, which defaults to `~/.config/git-tui/config.json`
 
-`~` is expanded. Each repository is validated on its own: a missing directory or a directory without `.git` is marked unavailable, and the app still opens. If no configuration file exists, the app opens and explains how to create one. Start from `examples/config.example.json`.
+`~` is expanded. Each repository is validated on its own: a missing directory or a directory without `.git` is marked unavailable, and the app still opens. If no configuration file exists, the app opens and offers to add repositories, creating the file when you do. You can also write it by hand; start from `examples/config.example.json`.
+
+## Managing repositories
+
+The Connections view (`g c`) lists each configured repository under "Repository configuration". There:
+
+| Key | Action |
+|-----|--------|
+| `a` | Add repositories (also offered from any view while none are configured) |
+| `r` | Rename the selected repository. Names must be unique |
+| `x` | Remove it from the list, after a `y` to confirm. The folder is not touched |
+| `K` / `J` | Move it up or down; the sidebar and Overview follow this order |
+| `f` | On a missing repository: find its folder again |
+
+Adding looks for git repositories up to 3 folders below the folder you give, skipping hidden folders, `node_modules`, `vendor`, and the inside of a repository it found (so submodules are not listed). It follows links: a linked starting folder is searched, and a project linked into it is listed. It starts in the folder you used last, else the folder your repositories share, else `~/Code`. Repositories already configured are marked `[·]`. A name already in use gets its parent folder in front, such as `client-x/api`; rename it afterwards if you like. `f` looks the same way and puts the cursor on a folder with the repository's old folder name, or its name, and `Enter` points the repository there.
+
+Each change is saved straight away. A repository keeps what it has already loaded when the list is reordered; a renamed one reloads its local Git data, which carries the name, but not its GitHub data.
+
+You can configure two folders cloned from the same GitHub repository, such as a second checkout or a worktree on another branch. Each keeps its own branch, status, commits and diff. They share the GitHub data: pull requests, environments and deploys load once and are listed once, under the first folder's name, and the header counts them once. Paths under your home folder are written with `~`. The previous file is kept beside it as `config.json.bak`. If `config.json` is a link (into a dotfiles repository, say), the file it points to is written and the link stays. If the file changed since git-tui loaded it, such as an edit by hand, nothing is saved and the status line asks you to restart, so your edit is not lost. Before anything is replaced, the new file is read back the way the app reads it at start-up, so a change from inside the app cannot leave a file it would reject. If the configuration failed to load (for example a typo in the JSON), these keys are not offered: fix the file by hand, so nothing you wrote is overwritten.
 
 ## Remembered preferences
 
-The time zone (`u`) and the profile header style (`b`) are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. This is the only file the app writes; your configuration file is never changed. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the profile header style (`b`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the configuration file and its `.bak`, and only when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
-`-demo` uses deterministic built-in fixtures. A `DEMO` badge appears in the header, and the status bar says no repositories are read. The fixtures include one repository that fails to read and one that is missing, so you can see the error and unavailable states. Demo mode shows every feature: the profile header with a generated avatar and every count lit, and PR pictures drawn from generated mock screenshots, all without touching the network. `t`, `T` and `Ctrl+T` are offered in any terminal and say what they would open, without opening anything. "This week" counts back from the fixtures' own date. Normal mode never falls back to fixtures.
+`-demo` uses deterministic built-in fixtures. A `DEMO` badge appears in the header, and the status bar says no repositories are read. The fixtures include one repository that fails to read and one that is missing, so you can see the error and unavailable states. Demo mode shows every feature: the profile header with a generated avatar and every count lit, and PR pictures drawn from generated mock screenshots, all without touching the network. `t`, `T` and `Ctrl+T` are offered in any terminal and say what they would open, without opening anything. Managing repositories works on the list in memory and saves nothing; adding finds fixture folders, including one whose name clashes and the folder the missing `infra` repository moved to. "This week" counts back from the fixtures' own date. Normal mode never falls back to fixtures.
 
 ## Views
 
@@ -115,7 +119,7 @@ The time zone (`u`) and the profile header style (`b`) are remembered between ru
 | Tags        | Tags; mark one as the base and pick another to list the **commits** between them        |
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
 | Deploys     | Recent deploy workflow runs: status, duration, branch and link. While a run is queued or running, the view reloads every 10 seconds by itself |
-| Connections | What is available: local Git, the config, GitHub pull requests, deployments and deploy runs (from what those views last loaded), and git-tui itself: its version, where it is installed and how to update it |
+| Connections | What is available: local Git, the config and each configured repository (managed here, see [Managing repositories](#managing-repositories)), GitHub pull requests, deployments and deploy runs (from what those views last loaded), and git-tui itself: its version, where it is installed and how to update it |
 
 In Pull requests, a **★** in the column after the check status means someone has asked for your review, either you directly or a team you belong to. Details repeats it as "Requested: ★ your review". The star comes from GitHub's `review-requested:@me` search, so it disappears once you submit a review, and comes back if you are asked again. It sits apart from the review column, which shows the PR's overall state (approved, changes, review, draft). If the search fails, the list still loads without stars until the next refresh.
 
@@ -161,14 +165,15 @@ The header degrades to what the terminal can show:
 | `t` / `T` / `Ctrl+T` | Open a new Ghostty tab, a split to the right, or a split below, at the selected repository's root (Overview row, sidebar or Repository view). Ghostty 1.4 or later on macOS, outside tmux; elsewhere the keys are hidden |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
+| `a` `r` `x` `K` `J` `f` | In Connections: add, rename, remove, reorder or find repositories. See [Managing repositories](#managing-repositories) |
 | `Ctrl+C`          | Quit                                                                       |
 
-While the filter input is open, all typing and pasted text go to the input, not to shortcuts.
+While the filter, rename or folder input is open, all typing and pasted text go to the input, not to shortcuts.
 
 ## Scope and behaviour
 
 - Git is run with argument arrays in each repository's directory, with a 5-second timeout. `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0` are set, so it never prompts and never refreshes the index, and `core.fsmonitor` is turned off. Repositories in the config are trusted: git may still run programs their own config names, such as clean filters (Git LFS is one), as it does in your shell.
-- Only `status`, `log`, `for-each-ref`, `diff`, `ls-files` and `remote get-url` are run; `diff` uses `--no-ext-diff --no-textconv`, so a repository's own diff programs never run. There is no fetch, pull, checkout or tagging.
+- Only `status`, `log`, `for-each-ref`, `diff`, `ls-files` and `remote get-url` are run (adding repositories reads each found repository's `origin` with `remote get-url` to name it); `diff` uses `--no-ext-diff --no-textconv`, so a repository's own diff programs never run. There is no fetch, pull, checkout or tagging.
 - GitHub calls go only to a remote whose host is github.com itself (or, over SSH, a host alias such as `github.com-work`).
 - Pull requests are read with `gh pr list`, deployments with `gh api graphql` and deploy runs with `gh run list` (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.

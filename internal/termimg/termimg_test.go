@@ -83,7 +83,11 @@ func TestEncodeAndLines(t *testing.T) {
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 400, 200))); err != nil {
 		t.Fatal(err)
 	}
-	p, err := Encode(buf.Bytes(), 0x123456)
+	img, err := Decode(buf.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := EncodeImage(img, 0x123456)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +111,7 @@ func TestEncodeAndLines(t *testing.T) {
 	if len(lines) != 5 || lipgloss.Width(lines[0]) != 20 {
 		t.Fatalf("placeholder rows: %d, width %d", len(lines), lipgloss.Width(lines[0]))
 	}
-	if _, err := Encode([]byte("<svg/>"), 1); err == nil {
+	if _, err := Decode([]byte("<svg/>")); err == nil {
 		t.Fatal("SVG is not supported and must say so")
 	}
 }

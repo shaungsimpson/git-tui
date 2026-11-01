@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 
 	"charm.land/lipgloss/v2"
 
@@ -58,37 +60,51 @@ func (m *Model) connections() []connRow {
 		rows = append(rows, connRow{"·", "Repository configuration", "demo fixtures", levelWarn, []string{
 			"Demo mode uses built-in fixture data. No configuration file or repository is read.",
 		}})
+	case errors.Is(m.opts.ConfigErr, config.ErrNotFound):
+		rows = append(rows, connRow{"!", "Repository configuration", "no file yet", levelWarn, []string{
+			"Path: " + clean(m.opts.ConfigPath),
+			"Press a to add repositories; the file is created when you do.",
+		}})
 	case m.opts.ConfigErr != nil:
 		rows = append(rows, connRow{"!", "Repository configuration", "not loaded", levelWarn, []string{
 			"Path: " + clean(m.opts.ConfigPath),
 			"Error: " + clean(m.opts.ConfigErr.Error()),
-			"Create the file from examples/config.example.json or pass -config FILE.",
+			"Fix the file by hand: git-tui does not change a configuration it cannot read.",
 		}})
 	default:
 		bad := 0
-		detail := []string{"Path: " + clean(m.opts.ConfigPath), ""}
 		for _, r := range m.repos {
-			state := "ok"
 			if r.cfg.Status != config.StatusOK {
 				bad++
-				state = clean(r.cfg.Err)
 			}
-			detail = append(detail, clean(r.cfg.Name)+": "+state)
 		}
-		row := connRow{"·", "Repository configuration", fmt.Sprintf("%d repositories", len(m.repos)), levelOK, detail}
+		row := connRow{"·", "Repository configuration", fmt.Sprintf("%d repositories", len(m.repos)), levelOK, []string{
+			"Path: " + clean(m.opts.ConfigPath),
+			"Press a to add repositories. Changes are saved at once; the previous file is kept as " + clean(filepath.Base(m.opts.ConfigPath)) + ".bak.",
+		}}
 		if bad > 0 {
 			row.glyph, row.level, row.state = "!", levelWarn, fmt.Sprintf("%d of %d unavailable", bad, len(m.repos))
 		}
 		rows = append(rows, row)
 	}
+	// One row per repository follows the configuration row; repoRows relies on that order.
+	for _, r := range m.repos {
+		row := connRow{"·", "  " + clean(r.cfg.Name), "ok", levelOK, []string{"Path: " + clean(config.Tilde(r.cfg.Path)), ""}}
+		if r.cfg.Status != config.StatusOK {
+			row.glyph, row.state, row.level = "!", r.cfg.Status.String(), levelWarn
+			row.detail = append(row.detail, clean(r.cfg.Err), "f finds a moved folder.", "")
+		}
+		row.detail = append(row.detail, "r renames, x removes, K and J move it up and down.")
+		rows = append(rows, row)
+	}
 
 	rows = append(rows,
 		m.githubRow("GitHub (pull requests)", "Pull requests (g p)", "open pull requests with `gh pr list`",
-			func(r *repoState) (bool, error) { return r.prs.loaded, r.prs.err }),
+			func(r *repoState) (bool, error) { return r.gh.prs.loaded, r.gh.prs.err }),
 		m.githubRow("GitHub (deployments)", "Environments (g e)", "GitHub Deployments records with `gh api` (not verified against running services)",
-			func(r *repoState) (bool, error) { return r.deps.loaded, r.deps.err }),
+			func(r *repoState) (bool, error) { return r.gh.deps.loaded, r.gh.deps.err }),
 		m.githubRow("GitHub (deploy runs)", "Deploys (g d)", "deploy workflow runs with `gh run list`",
-			func(r *repoState) (bool, error) { return r.runs.loaded, r.runs.err }))
+			func(r *repoState) (bool, error) { return r.gh.runs.loaded, r.gh.runs.err }))
 
 	rows = append(rows, connRow{"·", "git-tui", m.version(), levelOK, []string{
 		"Version: " + m.version(),
@@ -110,8 +126,13 @@ func (m *Model) githubRow(name, view, what string, state func(*repoState) (bool,
 	}
 	loaded := 0
 	var errs []string
+	seen := map[*ghState]bool{} // clones share one load, so it counts once
 	for i := range m.repos {
-		done, err := state(&m.repos[i])
+		if seen[m.repos[i].gh] {
+			continue
+		}
+		seen[m.repos[i].gh] = true
+		done, err := state(m.repos[i])
 		if done {
 			loaded++
 		}
@@ -133,4 +154,14 @@ func (m *Model) githubRow(name, view, what string, state func(*repoState) (bool,
 			fmt.Sprintf("Read %s for %d repositories (read-only).", what, loaded)}}
 	}
 	return connRow{"-", name, "not checked yet", levelOff, []string{source, "Open " + view + " to read it."}}
+}
+
+// repoRows is where the per-repository rows start in connections().
+func repoRows(rows []connRow) int {
+	for i, r := range rows {
+		if r.name == "Repository configuration" {
+			return i + 1
+		}
+	}
+	return len(rows)
 }

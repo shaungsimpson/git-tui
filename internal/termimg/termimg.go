@@ -155,16 +155,7 @@ func Decode(data []byte) (image.Image, error) {
 	return img, err
 }
 
-// Encode decodes PNG, JPEG or GIF data into a picture with the given terminal image ID.
-func Encode(data []byte, id int) (Picture, error) {
-	img, err := Decode(data)
-	if err != nil {
-		return Picture{}, err
-	}
-	return EncodeImage(img, id)
-}
-
-// EncodeImage is Encode for an image that is already decoded.
+// EncodeImage encodes a decoded image as a picture with the given terminal image ID.
 func EncodeImage(img image.Image, id int) (Picture, error) {
 	var b bytes.Buffer
 	err := kitty.EncodeGraphics(&b, img, &kitty.Options{

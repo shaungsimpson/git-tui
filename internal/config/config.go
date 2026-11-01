@@ -1,12 +1,14 @@
-// Package config loads the explicit repository list for git-tui.
+// Package config loads and saves the explicit repository list for git-tui.
 package config
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,21 +71,16 @@ func Resolve(flag string) string {
 
 // Load reads and validates the file. Per-repository problems are recorded on each Repo, not returned.
 func Load(path string) (Config, error) {
-	var cfg Config
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return cfg, ErrNotFound
+		return Config{}, ErrNotFound
 	}
 	if err != nil {
-		return cfg, err
+		return Config{}, err
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields() // a misspelt key such as "repos" should say so, not load nothing
-	if err := dec.Decode(&cfg); err != nil {
-		return cfg, fmt.Errorf("parse %s: %w", path, err)
-	}
-	if _, err := dec.Token(); err != io.EOF { // a decoder stops after one value; anything after it is a mistake
-		return cfg, fmt.Errorf("parse %s: unexpected content after the configuration", path)
+	cfg, err := decode(data)
+	if err != nil { // nothing half-read reaches the app: its repositories were never validated
+		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	for i := range cfg.Repositories {
 		validate(&cfg.Repositories[i])
@@ -91,8 +88,137 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+func decode(data []byte) (Config, error) {
+	var cfg Config
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields() // a misspelt key such as "repos" should say so, not load nothing
+	if err := dec.Decode(&cfg); err != nil {
+		return cfg, err
+	}
+	if _, err := dec.Token(); err != io.EOF { // a decoder stops after one value; anything after it is a mistake
+		return cfg, errors.New("unexpected content after the configuration")
+	}
+	return cfg, nil
+}
+
+// Save writes the repository list, keeping the previous file as path.bak. The new file is read back the way
+// Load reads it before anything is replaced, so a save can never leave a configuration Load rejects.
+func Save(path string, c Config) error {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real // write through a link, such as one into a dotfiles repository, rather than replace it
+	}
+	out := Config{Repositories: []Repo{}} // an empty list is written as [], not null
+	seen := map[string]bool{}
+	for _, r := range c.Repositories {
+		if strings.TrimSpace(r.Name) == "" || strings.TrimSpace(r.Path) == "" {
+			return errors.New("every repository needs a name and a path")
+		}
+		if seen[r.Name] {
+			return fmt.Errorf("two repositories are called %s", r.Name)
+		}
+		seen[r.Name] = true
+		out.Repositories = append(out.Repositories, Repo{Name: r.Name, Path: Tilde(r.Path)})
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if _, err := decode(data); err != nil {
+		return fmt.Errorf("the new configuration would not load: %w", err)
+	}
+	old, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := writeFile(path+".bak", old); err != nil {
+			return err
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+	return writeFile(path, data)
+}
+
+// Validate checks one repository the way Load does.
+func Validate(r Repo) Repo {
+	validate(&r)
+	return r
+}
+
+// maxScan bounds a scan of a large tree.
+// shortcut: stops at 500 repositories, raise it if someone keeps more under one folder.
+const maxScan = 500
+
+// Scan lists the git repositories under root, at most depth folders down. It does not look inside a repository
+// it found, nor inside hidden, node_modules or vendor folders.
+func Scan(ctx context.Context, root string, depth int) ([]string, error) {
+	root = filepath.Clean(expand(strings.TrimSpace(root)))
+	walk := root
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		walk = real // WalkDir does not follow a linked root; results still name the path as typed
+	}
+	var found []string
+	err := filepath.WalkDir(walk, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if p == walk {
+				return err
+			}
+			return nil // an unreadable folder is skipped, not fatal
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		rel, _ := filepath.Rel(walk, p)
+		if d.Type()&fs.ModeSymlink != 0 { // a project linked in from elsewhere: list it, never walk into it
+			if _, err := os.Stat(filepath.Join(p, ".git")); err == nil && len(found) < maxScan {
+				found = append(found, filepath.Join(root, rel))
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if rel != "." {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+				return fs.SkipDir
+			}
+		}
+		if _, err := os.Stat(filepath.Join(p, ".git")); err == nil {
+			found = append(found, filepath.Join(root, rel))
+			if len(found) >= maxScan {
+				return fs.SkipAll
+			}
+			return fs.SkipDir
+		}
+		if rel != "." && strings.Count(rel, string(filepath.Separator)) >= depth-1 {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	return found, err
+}
+
+// Tilde writes a path under the home folder as ~/..., the way people write it by hand.
+func Tilde(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(p, home+string(filepath.Separator)); ok {
+		return "~/" + rest
+	}
+	return p
+}
+
 func validate(r *Repo) {
 	r.Path = expand(strings.TrimSpace(r.Path))
+	if r.Path != "" {
+		r.Path = filepath.Clean(r.Path) // "~/Code/api/" and a found ~/Code/api are the same folder
+	}
 	if r.Name == "" {
 		r.Name = filepath.Base(r.Path)
 	}

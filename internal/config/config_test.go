@@ -36,6 +36,10 @@ func TestLoadRejectsTrailingContent(t *testing.T) {
 			t.Errorf("want an error for %q", body)
 		}
 	}
+	cfg, _ := Load(write(t, `{"repositories":[{"name":"a","path":"~/a"}]} junk`))
+	if len(cfg.Repositories) != 0 {
+		t.Fatalf("a file that fails to parse should give no repositories, got %+v", cfg.Repositories)
+	}
 	if _, err := Load(write(t, "{\"repositories\":[]}\n\n")); err != nil {
 		t.Fatalf("trailing whitespace is fine: %v", err)
 	}
@@ -70,6 +74,13 @@ func TestLoadValidatesEachRepo(t *testing.T) {
 	}
 	if cfg.Repositories[2].Name != filepath.Base(repo) {
 		t.Errorf("name should default to directory base, got %q", cfg.Repositories[2].Name)
+	}
+}
+
+func TestLoadTidiesPaths(t *testing.T) {
+	cfg, err := Load(write(t, `{"repositories":[{"name":"a","path":"/srv/x/../a/"}]}`))
+	if err != nil || cfg.Repositories[0].Path != "/srv/a" {
+		t.Fatalf("a path should be tidied, so the same folder always compares equal: %+v, %v", cfg, err)
 	}
 }
 
@@ -116,5 +127,122 @@ func TestStatePath(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/x/state")
 	if got := StatePath(); got != "/x/state/git-tui/state.json" {
 		t.Fatal(got)
+	}
+}
+
+func TestSaveRoundTripsAndKeepsBackup(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	p := write(t, `{"repositories":[{"name":"old","path":"/old"}]}`)
+	want := []Repo{{Name: "api", Path: filepath.Join(home, "Code", "api")}, {Name: "web", Path: "/srv/web"}}
+	if err := Save(p, Config{Repositories: want}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(p); !strings.Contains(string(data), `"~/Code/api"`) {
+		t.Fatalf("a path under home should be written with ~:\n%s", data)
+	}
+	cfg, err := Load(p)
+	if err != nil || len(cfg.Repositories) != 2 || cfg.Repositories[0].Path != want[0].Path || cfg.Repositories[1].Name != "web" {
+		t.Fatalf("got %+v, %v", cfg, err)
+	}
+	if bak, _ := os.ReadFile(p + ".bak"); !strings.Contains(string(bak), `"old"`) {
+		t.Fatalf("the previous file should be kept as .bak, got %q", bak)
+	}
+}
+
+func TestSaveRefusesBadLists(t *testing.T) {
+	p := write(t, `{"repositories":[]}`)
+	for _, repos := range [][]Repo{
+		{{Name: "a", Path: "/a"}, {Name: "a", Path: "/b"}},
+		{{Name: "", Path: "/a"}},
+		{{Name: "a", Path: " "}},
+	} {
+		if err := Save(p, Config{Repositories: repos}); err == nil {
+			t.Errorf("want an error for %+v", repos)
+		}
+	}
+	if data, _ := os.ReadFile(p); string(data) != `{"repositories":[]}` {
+		t.Fatalf("a refused save must leave the file alone, got %q", data)
+	}
+	if _, err := os.Stat(p + ".bak"); err == nil {
+		t.Fatal("a refused save must not write a backup")
+	}
+}
+
+func TestSaveCreatesTheFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "new", "config.json")
+	if err := Save(p, Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(p); !strings.Contains(string(data), `"repositories": []`) {
+		t.Fatalf("an empty list should be written as []: %q", data)
+	}
+}
+
+func TestScan(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"a/.git", "a/inner/.git", "group/b/.git", "x/y/z/deep/.git", ".hidden/c/.git", "node_modules/d/.git", "plain"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "group", "wt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Scan(t.Context(), root, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(root, "a"), filepath.Join(root, "group", "b")}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v, want %v (not inside a repository, hidden or node_modules folders, nor deeper than 3)", got, want)
+	}
+	link := filepath.Join(t.TempDir(), "Code")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Scan(t.Context(), link, 3); len(got) != 2 || got[0] != filepath.Join(link, "a") {
+		t.Fatalf("a linked folder should be searched and named as typed, got %v", got)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(filepath.Join(elsewhere, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Scan(t.Context(), root, 3); len(got) != 3 || got[2] != filepath.Join(root, "linked") {
+		t.Fatalf("a repository linked into the folder should be found, got %v", got)
+	}
+	if _, err := Scan(t.Context(), filepath.Join(root, "missing"), 3); err == nil {
+		t.Fatal("a missing root should be an error")
+	}
+}
+
+func TestTilde(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	for in, want := range map[string]string{filepath.Join(home, "Code"): "~/Code", home: "~", "/srv/x": "/srv/x", home + "x": home + "x"} {
+		if got := Tilde(in); got != want {
+			t.Errorf("Tilde(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSaveWritesThroughALink(t *testing.T) {
+	real := write(t, `{"repositories":[]}`)
+	link := filepath.Join(t.TempDir(), "config.json")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(link, Config{Repositories: []Repo{{Name: "x", Path: "/x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the link should stay a link")
+	}
+	if data, _ := os.ReadFile(real); !strings.Contains(string(data), `"x"`) {
+		t.Fatalf("the linked file should hold the change, got %s", data)
+	}
+	if _, err := os.Stat(real + ".bak"); err != nil {
+		t.Fatal("the backup belongs beside the linked file")
 	}
 }
