@@ -130,8 +130,8 @@ func TestHiddenHeaderLoadsOnlyTheView(t *testing.T) {
 	}
 	press(m, "b", "b", "b") // ascii, text, off
 	for _, w := range m.wanted() {
-		if w.kind != kindViewer && w.kind != kindPRs {
-			t.Fatalf("with the header off only the view's data and the badges' PRs refresh, got %v", m.wanted())
+		if w.kind != kindViewer && w.kind != kindPRs && w.kind != kindRelease {
+			t.Fatalf("with the header off only the view's data and the badges' PRs and release refresh, got %v", m.wanted())
 		}
 	}
 }

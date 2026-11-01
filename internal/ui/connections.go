@@ -45,7 +45,7 @@ func (m *Model) connections() []connRow {
 
 	if p, ok := m.tool("git"); ok {
 		rows = append(rows, connRow{"·", "Local Git", "available", levelOK, []string{
-			"Executable: " + clean(p),
+			"Executable: " + clean(config.Tilde(p)),
 			"Reads branch, HEAD, worktree, tracking, commits and tags with read-only git commands.",
 			"Nothing is fetched, so ahead/behind reflects the last fetch you ran yourself.",
 		}})
@@ -62,12 +62,12 @@ func (m *Model) connections() []connRow {
 		}})
 	case errors.Is(m.opts.ConfigErr, config.ErrNotFound):
 		rows = append(rows, connRow{"!", "Repository configuration", "no file yet", levelWarn, []string{
-			"Path: " + clean(m.opts.ConfigPath),
+			"Path: " + clean(config.Tilde(m.opts.ConfigPath)),
 			"Press a to add repositories; the file is created when you do.",
 		}})
 	case m.opts.ConfigErr != nil:
 		rows = append(rows, connRow{"!", "Repository configuration", "not loaded", levelWarn, []string{
-			"Path: " + clean(m.opts.ConfigPath),
+			"Path: " + clean(config.Tilde(m.opts.ConfigPath)),
 			"Error: " + clean(m.opts.ConfigErr.Error()),
 			"Fix the file by hand: git-tui does not change a configuration it cannot read.",
 		}})
@@ -79,7 +79,7 @@ func (m *Model) connections() []connRow {
 			}
 		}
 		row := connRow{"·", "Repository configuration", fmt.Sprintf("%d repositories", len(m.repos)), levelOK, []string{
-			"Path: " + clean(m.opts.ConfigPath),
+			"Path: " + clean(config.Tilde(m.opts.ConfigPath)),
 			"Press a to add repositories. Changes are saved at once; the previous file is kept as " + clean(filepath.Base(m.opts.ConfigPath)) + ".bak.",
 		}}
 		if bad > 0 {
@@ -106,12 +106,7 @@ func (m *Model) connections() []connRow {
 		m.githubRow("GitHub (deploy runs)", "Deploys (g d)", "deploy workflow runs with `gh run list`",
 			func(r *repoState) (bool, error) { return r.gh.runs.loaded, r.gh.runs.err }))
 
-	rows = append(rows, connRow{"·", "git-tui", m.version(), levelOK, []string{
-		"Version: " + m.version(),
-		"Executable: " + clean(firstOf(m.opts.Executable, "unknown")),
-		"Update: GOPRIVATE=github.com/acme go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest",
-		"From a clone: mise run install-cli",
-	}})
+	rows = append(rows, m.releaseRow())
 	return rows
 }
 
@@ -140,7 +135,7 @@ func (m *Model) githubRow(name, view, what string, state func(*repoState) (bool,
 			errs = append(errs, clean(m.repos[i].cfg.Name)+": "+clean(err.Error()))
 		}
 	}
-	source := "gh found at " + clean(p) + "."
+	source := "gh found at " + clean(config.Tilde(p)) + "."
 	if m.opts.Demo {
 		source = "Demo mode: this data is fixtures."
 	}

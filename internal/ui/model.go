@@ -17,6 +17,7 @@ import (
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
+	"github.com/shaungsimpson/git-tui/internal/update"
 )
 
 type viewID int
@@ -55,19 +56,22 @@ type pollMsg struct{ gen int }
 
 // Options configures a Model. Tools maps executable names to their resolved path ("" if absent).
 type Options struct {
-	Source     gitx.Source
-	Repos      []config.Repo
-	ConfigPath string
-	ConfigErr  error
-	Demo       bool
-	Images     bool // the terminal draws Kitty graphics placeholders
-	Tabs       bool // the terminal can open a tab for a repository (Ghostty on macOS, outside tmux)
-	Profile    Profile
-	UTC        bool   // show times in UTC
-	StatePath  string // where toggles are remembered; empty in demo mode and tests
-	Version    string // as -version prints it
-	Executable string // the running binary
-	Tools      map[string]string
+	Source       gitx.Source
+	Repos        []config.Repo
+	ConfigPath   string
+	ConfigErr    error
+	Demo         bool
+	Images       bool // the terminal draws Kitty graphics placeholders
+	Tabs         bool // the terminal can open a tab for a repository (Ghostty on macOS, outside tmux)
+	Profile      Profile
+	UTC          bool          // show times in UTC
+	StatePath    string        // where toggles are remembered; empty in demo mode and tests
+	Version      string        // as -version prints it
+	Executable   string        // the running binary
+	Build        update.Build  // how the running binary was made, which decides whether it is checked for updates
+	Release      update.Latest // the last successful update check, from the cache
+	ReleaseCache string        // where update checks are remembered; empty in demo mode and tests
+	Tools        map[string]string
 }
 
 type Model struct {
@@ -94,6 +98,7 @@ type Model struct {
 
 	profile Profile
 	me      slot[gitx.Viewer]
+	release slot[update.Latest] // the newest stable release of git-tui itself
 	avatar  avatarState
 	colours colorprofile.Profile // what the terminal reported; colour avatars need 256 or more
 
@@ -131,6 +136,9 @@ type Model struct {
 func New(o Options) *Model {
 	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
 	m.gh = map[string]*ghState{}
+	if o.Release.Version != "" {
+		m.release = slot[update.Latest]{val: o.Release, loaded: true, at: o.Release.Checked}
+	}
 	for _, r := range o.Repos {
 		m.repos = append(m.repos, newRepo(r))
 	}

@@ -16,6 +16,7 @@ type styles struct {
 	selected, marker, sep, ok, warn, bad   lipgloss.Style
 	badge, tab, tabActive, key             lipgloss.Style
 	alert, alertDim, readyBadge            lipgloss.Style   // the header's review and ready-to-merge pills
+	updateBadge                            lipgloss.Style   // the header's pill for a newer release
 	authors                                []lipgloss.Style // one per person, picked by authorStyle
 }
 
@@ -49,12 +50,13 @@ func newStyles(dark bool) styles {
 		bad:        s().Foreground(bad),
 		badge:      s().Foreground(bg).Background(warn).Bold(true).Padding(0, 1),
 		// Solid backgrounds with white text, stronger than any other colour on screen so the pills read as alerts.
-		alert:      s().Foreground(lipgloss.Color("#ffffff")).Background(c("#c62828", "#e5484d")).Bold(true),
-		alertDim:   s().Foreground(lipgloss.Color("#ffffff")).Background(c("#e8a09c", "#6e2b2d")),
-		readyBadge: s().Foreground(lipgloss.Color("#ffffff")).Background(c("#2e7d32", "#2f9e57")).Bold(true),
-		tab:        s().Foreground(muted),
-		tabActive:  s().Foreground(accent).Bold(true).Underline(true),
-		key:        s().Foreground(accent),
+		alert:       s().Foreground(lipgloss.Color("#ffffff")).Background(c("#c62828", "#e5484d")).Bold(true),
+		alertDim:    s().Foreground(lipgloss.Color("#ffffff")).Background(c("#e8a09c", "#6e2b2d")),
+		readyBadge:  s().Foreground(lipgloss.Color("#ffffff")).Background(c("#2e7d32", "#2f9e57")).Bold(true),
+		updateBadge: s().Foreground(bg).Background(accent).Bold(true),
+		tab:         s().Foreground(muted),
+		tabActive:   s().Foreground(accent).Bold(true).Underline(true),
+		key:         s().Foreground(accent),
 		// Hues apart from the status colours (red, green, amber) and the accent, each readable on its theme.
 		authors: []lipgloss.Style{
 			s().Foreground(c("#3b62c4", "#7aa2f7")), // blue

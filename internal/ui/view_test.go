@@ -199,9 +199,10 @@ func TestStackedRows(t *testing.T) {
 
 func TestVersionShown(t *testing.T) {
 	o := demoOpts()
-	o.Version, o.Executable = "v9.9.9", "/usr/local/bin/git-tui"
+	o.Version, o.Build.Version, o.Executable = "v9.9.9", "v9.9.9", "/usr/local/bin/git-tui"
 	m := setup(t, o, 120, 30)
 	press(m, "g", "c")
+	m.cursor[viewConnections] = len(m.connections()) - 1 // the git-tui row's details
 	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui") || !strings.Contains(out, "v9.9.9") {
 		t.Fatalf("Connections should list the version:\n%s", out)
 	}

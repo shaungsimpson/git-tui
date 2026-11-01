@@ -9,6 +9,7 @@ import (
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
+	"github.com/shaungsimpson/git-tui/internal/update"
 )
 
 // slot holds one asynchronously loaded value. gen identifies the newest request; older results are dropped.
@@ -57,6 +58,7 @@ const (
 	kindViewer
 	kindScan
 	kindSlug
+	kindRelease
 )
 
 // github reports whether a kind is GitHub data, shared between clones of one repository.
@@ -89,6 +91,9 @@ func (m *Model) ensure(force bool) tea.Cmd {
 			once[k] = true
 		}
 		cmds = append(cmds, m.load(w.repo, w.kind, force))
+	}
+	if force && m.view == viewConnections && m.opts.Build.Kind != update.Release { // other builds check only when asked
+		cmds = append(cmds, m.load(-1, kindRelease, true))
 	}
 	if m.cmpOpen() && (force || due(&m.cmp.res, localAge)) { // an open commit list is git data on screen too
 		cmds = append(cmds, m.loadCompare())
@@ -137,6 +142,10 @@ func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 		}
 		src := m.opts.Source
 		return start(m, &m.me, force, kind, -1, func(ctx context.Context) (gitx.Viewer, error) { return src.Viewer(ctx, dir) })
+	}
+	if kind == kindRelease {
+		src, path, now := m.opts.Source, m.opts.ReleaseCache, clock()
+		return start(m, &m.release, force, kind, -1, func(ctx context.Context) (update.Latest, error) { return update.Check(ctx, src, path, now) })
 	}
 	r := m.repos[i]
 	if r.cfg.Status != config.StatusOK {

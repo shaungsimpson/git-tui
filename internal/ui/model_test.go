@@ -284,5 +284,11 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 		if m.profile != mode {
 			t.Fatalf("b should cycle to %s", profileNames[mode])
 		}
+		if !strings.Contains(ansi.Strip(m.render()), "Update v0.5.0") {
+			t.Fatalf("demo should show the newer release in the %s header", profileNames[mode])
+		}
+	}
+	if r := m.releaseRow(); r.state != "update available" || !strings.Contains(strings.Join(r.detail, "\n"), "@v0.5.0") {
+		t.Fatalf("Connections should say how to install the newer release: %+v", r)
 	}
 }

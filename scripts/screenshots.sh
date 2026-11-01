@@ -45,7 +45,7 @@ front() {
   osascript -e 'tell application "System Events" to unix id of first process whose frontmost is true'
 }
 
-# keys types each argument into the window: a character, or f2. Keystrokes go to whatever app is in front,
+# keys types each argument into the window: a character, or f2, enter, esc, tab, shift-tab or space. Keystrokes go to whatever app is in front,
 # so it brings the screenshot window forward first and stops rather than type into anything else.
 keys() {
   for k in "$@"; do
@@ -56,6 +56,11 @@ keys() {
     fi
     case $k in
       f2) osascript -e 'tell application "System Events" to key code 120' ;;
+      enter) osascript -e 'tell application "System Events" to key code 36' ;;
+      esc) osascript -e 'tell application "System Events" to key code 53' ;;
+      tab) osascript -e 'tell application "System Events" to key code 48' ;;
+      shift-tab) osascript -e 'tell application "System Events" to key code 48 using shift down' ;;
+      space) osascript -e 'tell application "System Events" to keystroke " "' ;;
       *) osascript -e "tell application \"System Events\" to keystroke \"$k\"" ;;
     esac
     sleep 0.3
@@ -92,4 +97,18 @@ finish
 launch 80 24
 keys g p
 shot narrow
+finish
+
+# A fresh window for the rest, so they are in the dark theme with the full header.
+launch 140 40
+keys g c $(printf 'j %.0s' {1..11}) # the git-tui row, last in Connections
+shot connections
+keys g p d
+shot diff
+keys esc g d
+shot deploys
+keys shift-tab j tab g t enter j enter # backend, then its two newest tags
+shot compare
+keys g c a enter j space j space
+shot add-repositories
 finish

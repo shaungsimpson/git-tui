@@ -42,7 +42,7 @@ After `mise run install-cli`, run `git-tui` from anywhere (Go's install director
 
 `git-tui -version` prints the version it was built from; the app also shows it in the Connections view and on the `?` help screen. A build from a clone shows a pre-release version such as `v0.3.1-0.20261030…` (Go 1.24 and later record it from the commit), the tag when you are exactly on a release, and `+dirty` on the end when there are uncommitted changes.
 
-`mise run install-cli` and the README's install command write the same `git-tui` executable to the same directory, so each replaces the other: the last one you ran is the one you have. To go back to the release after testing your own build, run the install command from the README again. `go version -m "$(which git-tui)"` tells them apart: a release has an `h1:` checksum on its `mod` line, and a build from a clone has a `vcs.revision` line instead. There is no mise task for the release install on purpose: mise only runs inside a clone, and the release install is for when you do not need one.
+`mise run install-cli` and the README's install command write the same `git-tui` executable to the same directory, so each replaces the other: the last one you ran is the one you have. To go back to the release after testing your own build, run the install command from the README again. `go version -m "$(which git-tui)"` tells them apart: a release has an `h1:` checksum on its `mod` line, and a build from a clone has a `vcs.revision` line instead. The update check reads the same metadata (`internal/update`), so your own build is a source build and never shows the update badge; `git-tui -check-update` still tells you the latest release. There is no mise task for the release install on purpose: mise only runs inside a clone, and the release install is for when you do not need one.
 
 ## Screenshots
 
@@ -63,7 +63,7 @@ It cannot run in CI: it needs a Mac with a screen.
 mise run screenshots
 ```
 
-A Ghostty window opens, steps through the views and closes, then a narrower one does the same: about 20 seconds in all. **Leave the keyboard and mouse alone while it runs.** Keystrokes go to whichever app is in front, so the script brings its window forward and checks it is in front before every key press; if anything else takes the front, it stops instead of typing into it. It prints each picture it writes:
+A Ghostty window opens, steps through the views and closes, then a narrower one does the same, then a third: about 40 seconds in all. **Leave the keyboard and mouse alone while it runs.** Keystrokes go to whichever app is in front, so the script brings its window forward and checks it is in front before every key press; if anything else takes the front, it stops instead of typing into it. It prints each picture it writes:
 
 ```text
 docs/images/overview.png
@@ -72,6 +72,11 @@ docs/images/header-ascii.png
 docs/images/header-text.png
 docs/images/light.png
 docs/images/narrow.png
+docs/images/connections.png
+docs/images/diff.png
+docs/images/deploys.png
+docs/images/compare.png
+docs/images/add-repositories.png
 ```
 
 Look at the pictures before committing them: each should show a different screen.
@@ -122,6 +127,8 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
    gh release create "$v" --title "$v" --notes-file /tmp/notes.md --latest --verify-tag
    ```
 
+   Installed releases learn about the new one from the GitHub Release marked latest, within a day; a tag alone is not announced.
+
 5. **Check it installs** like a user would, from outside the clone. The check prints `installed` only when the `git-tui` first on your PATH is the new version:
 
    ```sh
@@ -137,10 +144,12 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
 cmd/git-tui        entry point and flags
 internal/config      JSON config loading, saving (Save) and per-repository validation, the repository scan (Scan), remembered preferences
 internal/gitx        read-only git and gh runner, parsers, demo fixtures
+internal/update      which build is running (Go build metadata), version comparison, the update check and its cache
 internal/ui          Bubble Tea model and key dispatch (model.go), asynchronous loads (load.go), list contents (lists.go),
                      diff and commit comparisons (compare.go), PR pictures (pictures.go), browser and terminal tabs (open.go),
                      rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go),
-                     managing repositories (repos.go), review and ready-to-merge badges (alerts.go); tests sit beside the
+                     managing repositories (repos.go), review, ready-to-merge and update badges (alerts.go),
+                     the update details (update.go); tests sit beside the
                      code they cover (load_test.go for load.go), with shared test helpers in helpers_test.go
 internal/termimg     picture downloads, Kitty graphics, colour-block and character drawing
 scripts              screenshots.sh, behind mise run screenshots

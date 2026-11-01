@@ -6,6 +6,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/shaungsimpson/git-tui/internal/update"
 )
 
 // The refresh cadence: data on screen reloads when it is older than its tier allows, checked on every key,
@@ -30,6 +32,8 @@ func ageOf(k dataKind) time.Duration {
 		return githubAge
 	case kindViewer:
 		return viewerAge
+	case kindRelease:
+		return update.MaxAge
 	}
 	return localAge
 }
@@ -53,7 +57,7 @@ func due[T any](s *slot[T], age time.Duration) bool {
 	return clock().Sub(s.at) >= age
 }
 
-// want is one piece of data on screen; repo is -1 for the viewer's profile.
+// want is one piece of data on screen; repo is -1 for data of no repository, such as the viewer's profile.
 type want struct {
 	repo int
 	kind dataKind
@@ -99,6 +103,9 @@ func (m *Model) wanted() []want {
 	// (whose login says which PRs are theirs) are always on screen.
 	add(kindViewer, -1)
 	add(kindPRs, all...)
+	if m.opts.Build.Kind == update.Release { // the update badge shows in every header mode too
+		add(kindRelease, -1)
+	}
 	if m.profileShown() != ProfileOff {
 		add(kindLog, all...)
 		add(kindSummary, all...)
@@ -111,7 +118,7 @@ func (m *Model) times(w want) (at time.Time, loading bool) {
 	if w.kind == kindViewer {
 		return m.me.at, m.me.loading
 	}
-	if w.repo < 0 || w.repo >= len(m.repos) {
+	if w.repo < 0 || w.repo >= len(m.repos) { // the update check too: a day-old check is not stale data on screen
 		return time.Time{}, false
 	}
 	r := m.repos[w.repo]
@@ -151,16 +158,21 @@ func (m *Model) freshness() string {
 	if m.cmpOpen() && see(m.cmp.res.at, m.cmp.res.loading) {
 		return "Updating…"
 	}
-	switch d := clock().Sub(oldest); {
-	case oldest.IsZero():
+	if oldest.IsZero() {
 		return ""
-	case d < time.Minute:
-		return "Updated just now"
-	case d < time.Hour:
-		return "Updated " + strconv.Itoa(int(d/time.Minute)) + "m ago"
-	default:
-		return "Updated " + strconv.Itoa(int(d/time.Hour)) + "h ago"
 	}
+	return "Updated " + ago(clock().Sub(oldest))
+}
+
+// ago is a duration as "just now", "3m ago" or "2h ago".
+func ago(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d/time.Minute)) + "m ago"
+	}
+	return strconv.Itoa(int(d/time.Hour)) + "h ago"
 }
 
 type refreshMsg struct{}

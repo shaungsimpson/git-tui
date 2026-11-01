@@ -15,7 +15,7 @@ A pull request is ready when all of these hold. CI checks the first two; reviewe
 
 ## Design principles
 
-- **Read-only.** The app never changes a repository or GitHub. Git runs only the commands listed in the README's Scope and behaviour, and never fetches. It writes only its own preferences file (`internal/config/state.go`) and, when someone changes the repository list in the app, the configuration file and its `.bak` (`config.Save`, which reads the new file back before replacing anything and is never used on a file that failed to load).
+- **Read-only.** The app never changes a repository or GitHub. Git runs only the commands listed in the README's Scope and behaviour, and never fetches. It writes only its own preferences file (`internal/config/state.go`), the update check's cache (`internal/update`) and, when someone changes the repository list in the app, the configuration file and its `.bak` (`config.Save`, which reads the new file back before replacing anything and is never used on a file that failed to load).
 - **Network only through GitHub.** Data comes from `gh`. Pictures come only from hosts in `termimg.Allowed`, and the login token goes to github.com only. Demo mode makes no network calls.
 - **External text is untrusted.** Pass anything from Git, GitHub or a config file through `clean()` before it is drawn, and only open https links.
 - **External commands are bounded.** Argument arrays, never a shell string; every call has a timeout (`command` in `internal/gitx`).

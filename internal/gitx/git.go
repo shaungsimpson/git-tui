@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shaungsimpson/git-tui/internal/update"
 )
 
 // Commit is one log entry.
@@ -65,6 +67,7 @@ type Source interface {
 	Viewer(ctx context.Context, dir string) (Viewer, error)
 	Slug(ctx context.Context, dir string) (string, error)       // the GitHub "owner/name" of origin
 	Image(ctx context.Context, url string) (image.Image, error) // a picture already checked with termimg.Allowed
+	LatestRelease(ctx context.Context) (update.Latest, error)   // git-tui's newest stable release
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.

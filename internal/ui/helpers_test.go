@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 }
 
 func demoOpts() Options {
-	o := Options{Source: gitx.Demo{}, Demo: true, Tools: map[string]string{"git": "/usr/bin/git"}}
+	o := Options{Source: gitx.Demo{}, Demo: true, Build: gitx.DemoBuild, Tools: map[string]string{"git": "/usr/bin/git"}}
 	for _, n := range gitx.DemoRepos {
 		o.Repos = append(o.Repos, config.Repo{Name: n, Path: "/demo/" + n, Status: config.StatusOK})
 	}

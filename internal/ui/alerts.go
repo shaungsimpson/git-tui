@@ -10,6 +10,7 @@ import (
 
 	"github.com/shaungsimpson/git-tui/internal/config"
 	"github.com/shaungsimpson/git-tui/internal/gitx"
+	"github.com/shaungsimpson/git-tui/internal/update"
 )
 
 const (
@@ -42,7 +43,8 @@ func pill(st lipgloss.Style, text string, ascii bool) string {
 	return end.Render("▐") + st.Render(text) + end.Render("▌")
 }
 
-// badges are the loud counts of review requests and PRs ready to merge; empty when both are zero.
+// badges are the loud counts of review requests and PRs ready to merge, then a newer release; empty when
+// there is none of them.
 func (m *Model) badges(ascii bool) string {
 	s := m.profileStats(clock())
 	review, ready := "🔔 ", "✔ "
@@ -59,6 +61,9 @@ func (m *Model) badges(ascii bool) string {
 	}
 	if s.ready > 0 {
 		out = append(out, pill(m.st.readyBadge, ready+capped(s.ready), ascii))
+	}
+	if m.updateState() == update.Available { // the words carry the meaning, so it reads without colour
+		out = append(out, pill(m.st.updateBadge, "Update "+m.release.val.Version, ascii))
 	}
 	return strings.Join(out, " ")
 }

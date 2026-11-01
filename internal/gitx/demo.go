@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/shaungsimpson/git-tui/internal/update"
 )
 
 // DemoRepos are the repository names the demo fixtures know about. "legacy-api" deliberately fails.
@@ -226,4 +228,11 @@ func (Demo) Viewer(context.Context, string) (Viewer, error) {
 
 func (Demo) Slug(_ context.Context, dir string) (string, error) {
 	return "acme/" + dir[strings.LastIndex(dir, "/")+1:], nil
+}
+
+// DemoBuild is the release demo mode pretends to run, one behind Demo.LatestRelease, so the update badge shows.
+var DemoBuild = update.Build{Kind: update.Release, Module: update.Module, Version: "v0.4.1", Sum: "h1:demo"}
+
+func (Demo) LatestRelease(context.Context) (update.Latest, error) {
+	return update.Latest{Version: "v0.5.0"}, nil
 }
