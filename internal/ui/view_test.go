@@ -1,0 +1,311 @@
+package ui
+
+import (
+	"context"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/shaungsimpson/git-tui/internal/config"
+	"github.com/shaungsimpson/git-tui/internal/gitx"
+)
+
+func TestShortDatesAndFailedRefreshMark(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	m.utc = true
+	at := time.Date(2026, 10, 30, 3, 12, 0, 0, time.UTC)
+	if m.stamp(at, 80) != "2026-10-30 03:12" || m.stamp(at, 60) != "10-30 03:12" {
+		t.Fatalf("stamp: %q / %q", m.stamp(at, 80), m.stamp(at, 60))
+	}
+	press(m, "g", "a")
+	if !regexp.MustCompile(`\d\d-\d\d \d\d:\d\d`).MatchString(m.render()) {
+		t.Fatal("Activity at 140 columns should still show dates")
+	}
+
+	r := m.repos[0] // loaded earlier; now a refresh fails
+	r.summary.err = context.DeadlineExceeded
+	glyph := m.overviewSegs(r)[0]
+	if glyph.st.Render(glyph.s) != m.st.bad.Render(glyph.s) || !strings.HasPrefix(glyph.s, "!") {
+		t.Fatalf("a failed refresh should keep a red !, got %q", glyph.s)
+	}
+}
+
+func TestPullRequestBodyFilesAndDiff(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "p")
+	p := m.prList()[0]
+	detail := strings.Join(m.detailLines(), "\n")
+	for _, want := range []string{"Description", "## Summary", "Files changed (2)", "+12", "app/maths.ts",
+		"[image: Screenshot of the change · this terminal cannot draw images"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("PR details missing %q", want)
+		}
+	}
+	press(m, "d")
+	if !m.diff.open || !strings.Contains(m.diff.title, "Pull request #"+strconv.Itoa(p.Number)) ||
+		!strings.Contains(strings.Join(m.diff.res.val, "\n"), "PR #"+strconv.Itoa(p.Number)) {
+		t.Fatalf("d on a PR should open its diff: %q %v", m.diff.title, m.diff.res.val)
+	}
+	press(m, "esc")
+
+	long := strings.Repeat("line\n", maxBodyLines+50)
+	if shown, more := bodyLines(long); len(shown) != maxBodyLines || more != 50 {
+		t.Fatalf("body cap: %d shown, %d more", len(shown), more)
+	}
+}
+
+func TestHelpFitsCommonSizes(t *testing.T) {
+	for _, sz := range [][2]int{{80, 24}, {60, 16}, {140, 30}} {
+		m := setup(t, demoOpts(), sz[0], sz[1])
+		press(m, "g", "p", "?") // Pull requests offers the most shortcuts
+		out := ansi.Strip(m.render())
+		if !strings.Contains(out, "g then") || !strings.Contains(out, "c Connections") {
+			t.Errorf("%dx%d: every view jump should be visible, including the last", sz[0], sz[1])
+		}
+		if !strings.Contains(m.footer(), "close help") {
+			t.Errorf("%dx%d: the footer should say how to close help", sz[0], sz[1])
+		}
+		if !strings.Contains(out, "quit") || !strings.Contains(out, "UTC / local times") {
+			t.Errorf("%dx%d: every shortcut should fit, including u and ctrl+c:\n%s", sz[0], sz[1], out)
+		}
+	}
+
+	// The most shortcuts at once: an active filter adds esc. It must still fit at the minimum size.
+	m := setup(t, demoOpts(), 60, 16)
+	press(m, "g", "p", "/", "x", "enter", "?")
+	out := ansi.Strip(m.render())
+	// "UTC / local times" is the longest description; seeing it whole means no column was cut at the edge.
+	for _, want := range []string{"back", "quit", "UTC / local times", "c Connections"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("60x16 with every shortcut available is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderFitsTerminal(t *testing.T) {
+	sizes := [][2]int{{60, 16}, {80, 24}, {100, 30}, {160, 50}}
+	for _, sz := range sizes {
+		m := setup(t, demoOpts(), sz[0], sz[1])
+		check := func(label string) {
+			out := m.render()
+			lines := strings.Split(out, "\n")
+			if len(lines) != sz[1] {
+				t.Errorf("%dx%d %s: %d lines", sz[0], sz[1], label, len(lines))
+			}
+			for i, l := range lines {
+				if w := lipgloss.Width(l); w > sz[0] {
+					t.Errorf("%dx%d %s: line %d is %d wide", sz[0], sz[1], label, i, w)
+				}
+			}
+		}
+		for _, g := range goKeys {
+			press(m, "g", g.key)
+			check(viewNames[g.view])
+		}
+		press(m, "tab", "j", "j", "g", "r")
+		check("repository")
+		press(m, "?")
+		check("help")
+		press(m, "esc", "f2")
+		check("light")
+		for _, mode := range []string{"full", "ascii", "text"} { // the badges in each header mode
+			press(m, "b")
+			check("badges in the " + mode + " header")
+		}
+		press(m, "b")
+		press(m, "g", "c", "a", "enter")
+		check("add repositories")
+		press(m, "esc")
+	}
+}
+
+func TestTooSmall(t *testing.T) {
+	m := setup(t, demoOpts(), 50, 10)
+	if !strings.Contains(m.render(), "too small") {
+		t.Fatal("expected resize message")
+	}
+}
+
+func TestMissingConfigMessage(t *testing.T) {
+	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: "/x/config.json", ConfigErr: config.ErrNotFound}, 100, 30)
+	if out := m.render(); !strings.Contains(out, "No repositories yet. Press a") {
+		t.Fatalf("missing-config message not shown:\n%s", out)
+	}
+	press(m, "g", "c")
+	if !strings.Contains(m.render(), "no file yet") {
+		t.Fatal("connections should report that the configuration does not exist yet")
+	}
+}
+
+func TestUnavailableRepoDoesNotBlock(t *testing.T) {
+	m := setup(t, demoOpts(), 120, 30)
+	if !m.repos[0].summary.loaded {
+		t.Fatal("healthy repositories should load")
+	}
+	if m.repos[3].summary.err == nil {
+		t.Fatal("legacy-api fixture should report an error")
+	}
+	if m.repos[4].summary.loading || m.repos[4].summary.loaded {
+		t.Fatal("missing repositories must not be queried")
+	}
+}
+
+func TestClean(t *testing.T) {
+	in := "ok\x1b[31mred\x1b[0m\x1b]0;title\x07\x07bell\u009b\ttab\u202egnirts\u2066x\u2069"
+	if got := clean(in); got != "okredbell tabgnirtsx" {
+		t.Fatalf("clean = %q", got)
+	}
+}
+
+func TestStackedRows(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 16) // details on, so the list is under stackedBelow
+	m.view, m.focus = viewPRs, paneMain
+	for i := range m.repos {
+		drain(m, m.load(i, kindPRs, false))
+	}
+	prs := m.prList()
+	if !m.stacked(viewPRs) || m.listHeight(viewPRs) >= len(prs) {
+		t.Fatalf("want stacked rows that scroll: stacked %v, height %d, %d PRs", m.stacked(viewPRs), m.listHeight(viewPRs), len(prs))
+	}
+	lines := strings.Split(ansi.Strip(m.render()), "\n")
+	num := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "#"+strconv.Itoa(prs[0].Number)) })
+	if num < 0 || num+1 == len(lines) || !strings.Contains(lines[num+1], prs[0].Title[:10]) {
+		t.Fatalf("title should sit under its number at line %d:\n%s", num, strings.Join(lines, "\n"))
+	}
+	for range prs {
+		press(m, "j")
+	}
+	if !strings.Contains(ansi.Strip(m.render()), prs[len(prs)-1].Title[:10]) {
+		t.Fatal("the last PR should scroll into view")
+	}
+	i := slices.IndexFunc(prs, func(p gitx.PR) bool { return p.ForMe })
+	if i < 0 {
+		t.Fatal("demo should request a review from the viewer")
+	}
+	star := func(p gitx.PR) bool {
+		return strings.Contains(ansi.Strip(m.row(m.prSegs(p, 80, true), 80, false, true)[0]), "★")
+	}
+	if !star(prs[i]) || star(gitx.PR{Repo: "x", Number: 1}) {
+		t.Fatal("only PRs waiting on the viewer get a star")
+	}
+}
+
+func TestVersionShown(t *testing.T) {
+	o := demoOpts()
+	o.Version, o.Executable = "v9.9.9", "/usr/local/bin/git-tui"
+	m := setup(t, o, 120, 30)
+	press(m, "g", "c")
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui") || !strings.Contains(out, "v9.9.9") {
+		t.Fatalf("Connections should list the version:\n%s", out)
+	}
+	press(m, "?")
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui v9.9.9") {
+		t.Fatal("help should show the version")
+	}
+}
+
+func TestAuthorColours(t *testing.T) {
+	m := New(demoOpts())
+	fg := func(name string) any { return m.authorStyle(name, false).GetForeground() }
+	login := func(name string) any { return m.authorStyle(name, true).GetForeground() }
+	if fg("Jane Doe") != fg("jane.doe") || fg("Bob") != fg("b.o.b") {
+		t.Fatal("case and punctuation do not change a person's colour")
+	}
+	if fg("renovate[bot]") != m.st.muted.GetForeground() || fg("") != m.st.muted.GetForeground() ||
+		login("app/dependabot") != m.st.muted.GetForeground() {
+		t.Fatal("bots (including GitHub Apps, which gh reports as app/<name>) and empty names are muted")
+	}
+	m.me.val = gitx.Viewer{Login: "janedoe", Name: "Jane DOe", GitName: "Jane Doe"}
+	for _, you := range []string{"janedoe", "Jane DOe", "Jane Doe"} {
+		if fg(you) != m.st.accent.GetForeground() {
+			t.Fatalf("%q is the viewer and gets the accent colour", you)
+		}
+	}
+	if login("JaneDoe") != m.st.accent.GetForeground() {
+		t.Fatal("the viewer's own login matches whatever its case")
+	}
+	m.me.val.Login = "anna-lee"
+	if login("annalee") == m.st.accent.GetForeground() {
+		t.Fatal("a PR login matches the viewer's login exactly: annalee is someone else's account")
+	}
+	seen := map[any]bool{}
+	for _, name := range []string{"Bob", "Chuck", "Dave", "bob", "chuck", "dave"} {
+		seen[fg(name)] = true
+		if fg(name) == m.st.muted.GetForeground() || fg(name) == m.st.accent.GetForeground() {
+			t.Fatalf("%q should get a palette colour", name)
+		}
+	}
+	if len(seen) < 3 {
+		t.Fatalf("the demo's people should spread across the palette, got %d colours", len(seen))
+	}
+}
+
+func TestStackedRowsGiveTheTitleItsOwnLine(t *testing.T) {
+	m := setup(t, demoOpts(), 90, 30) // a list narrower than stackedBelow
+	press(m, "g", "a")
+	if !m.stacked(viewActivity) {
+		t.Fatal("setup: rows should be stacked")
+	}
+	c := m.activity()[1]
+	lines := m.row(m.commitSegs(c, m.layout().mainW, true), m.layout().mainW, false, true)
+	if len(lines) != 2 || !strings.Contains(ansi.Strip(lines[0]), c.Author) {
+		t.Fatalf("stacked: the author belongs on the first line: %q", lines)
+	}
+	if got := strings.TrimSpace(ansi.Strip(lines[1])); got != c.Subject {
+		t.Fatalf("stacked: the second line is the title alone, got %q", got)
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 30})
+	wide := m.row(m.commitSegs(c, m.layout().mainW, true), m.layout().mainW, false, false)
+	s := ansi.Strip(wide[0])
+	ti, ai := strings.Index(s, c.Subject), strings.Index(s, c.Author)
+	if len(wide) != 1 || ti < 0 || ai < 0 || ti > ai {
+		t.Fatalf("wide: one line with both, title before author: %q", wide)
+	}
+
+	// A first line too narrow for the author keeps it whole, after the title on the second line.
+	long := []seg{{strings.Repeat("x", 40), m.st.text}}
+	fits := titled(long, seg{"Title  ", m.st.text}, seg{"bob", m.st.muted}, true, 50)
+	cut := titled(long, seg{"Title  ", m.st.text}, seg{"renovate[bot]", m.st.muted}, true, 50)
+	if fits[1].s != "bob" || fits[2].s != brk.s || cut[1].s != brk.s || cut[3].s != "renovate[bot]" {
+		t.Fatalf("author placement: fits %v, too long %v", fits, cut)
+	}
+}
+
+func TestHeaderKeepsTabsBeforeTheAge(t *testing.T) {
+	o := demoOpts()
+	o.Profile = ProfileFull // the badges sit in the banner, leaving the tab bar as it was
+	m := setup(t, o, 200, 30)
+	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "Updated just now") {
+		t.Fatalf("a wide header has every tab and the full age: %q", h)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "Just now") {
+		t.Fatalf("at 140 columns the tabs stay and the age shortens: %q", h)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	if h := ansi.Strip(m.header()); strings.Contains(h, "Connections") || !strings.Contains(h, "Updated just now") {
+		t.Fatalf("when the tabs cannot fit anyway, the full age shows: %q", h)
+	}
+
+	// With the header off the badges join the tab bar and outrank the age, the repository and the zone,
+	// whichever of those fit; how many do depends on the time zone's name, so only the order is checked.
+	m = setup(t, demoOpts(), 140, 30)
+	if h := ansi.Strip(m.header()); !strings.Contains(h, "Connections") || !strings.Contains(h, "🔔 3") || !strings.Contains(h, "✔ 2") {
+		t.Fatalf("at 140 columns the tabs and both badges stay: %q", h)
+	}
+	press(m, "g", "p")
+	for _, w := range []int{80, 60} { // the tabs collapse to the current one, which the labels must not cut
+		m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		if h := ansi.Strip(m.header()); !strings.Contains(h, "Pull requests") || !strings.Contains(h, "🔔 3") || !strings.Contains(h, "✔ 2") {
+			t.Fatalf("at %d columns the current view and both badges stay: %q", w, h)
+		}
+	}
+}
