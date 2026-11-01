@@ -23,6 +23,7 @@ mise run demo               # builds and runs with fixture data, no repositories
 mise run start              # builds and runs with the default config location
 mise run start -- -config examples/config.example.json
 mise run install-cli        # installs the git-tui command into Go's install directory
+mise run update             # on main: pulls (fast-forward only) and installs the git-tui command
 mise run screenshots        # regenerates docs/images (macOS and Ghostty; see Screenshots)
 ```
 
@@ -38,7 +39,7 @@ Demo mode is the showcase, so it must show every feature. When you add one, give
 
 ## Your own build
 
-After `mise run install-cli`, run `git-tui` from anywhere (Go's install directory must be on your `PATH`: `go env GOBIN`, or `$(go env GOPATH)/bin` if that is empty, usually `~/go/bin`). Run it again after pulling changes.
+After `mise run install-cli`, run `git-tui` from anywhere (Go's install directory must be on your `PATH`: `go env GOBIN`, or `$(go env GOPATH)/bin` if that is empty, usually `~/go/bin`). Run it again after pulling changes, or run `mise run update` on `main` to do both: it pulls with `--ff-only`, so it never makes a merge commit, and stops if you are on another branch.
 
 `git-tui -version` prints the version it was built from; the app also shows it in the Connections view and on the `?` help screen. A build from a clone shows a pre-release version such as `v0.3.1-0.20261030…` (Go 1.24 and later record it from the commit), the tag when you are exactly on a release, and `+dirty` on the end when there are uncommitted changes.
 

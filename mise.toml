@@ -29,6 +29,14 @@ run = "./bin/git-tui -demo"
 description = "Install the git-tui command into Go's install directory (go env GOBIN, or GOPATH/bin)"
 run = "go install ./cmd/git-tui"
 
+[tasks.update]
+description = "Pull main and install the git-tui command from it"
+run = [
+  "test \"$(git branch --show-current)\" = main || { echo 'update runs on main: git checkout main first'; exit 1; }",
+  "git pull --ff-only",
+  "go install ./cmd/git-tui",
+]
+
 [tasks.screenshots]
 description = "Capture README screenshots of the demo in Ghostty (macOS; needs Screen Recording and Accessibility)"
 run = "scripts/screenshots.sh"

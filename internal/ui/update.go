@@ -59,7 +59,7 @@ func releaseLines(b update.Build, exe string, l update.Latest, st update.State, 
 	}
 	lines = append(lines, "")
 	install := "GOPRIVATE=github.com/acme go install " + update.Module + "/cmd/git-tui@" + l.Version
-	rebuild := "in the checkout, update to the commit you want, then run mise run install-cli (or go install ./cmd/git-tui)."
+	rebuild := "in the checkout, run mise run update on main, or check out the commit you want and run mise run install-cli (or go install ./cmd/git-tui)."
 	switch {
 	case st == update.Available:
 		lines = append(lines, "To install "+l.Version+", run:", "  "+install)
