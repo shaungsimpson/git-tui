@@ -62,6 +62,7 @@ type Source interface {
 	PullRequests(ctx context.Context, repo, dir string) ([]PR, error)
 	Deployments(ctx context.Context, repo, dir string) ([]Deployment, error)
 	DeployRuns(ctx context.Context, repo, dir string) ([]Run, error)
+	RunReasons(ctx context.Context, dir string, run Run) ([]string, error) // why a stopped run stopped
 	Diff(ctx context.Context, repo, dir string) ([]string, error)
 	PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error)
 	Viewer(ctx context.Context, dir string) (Viewer, error)

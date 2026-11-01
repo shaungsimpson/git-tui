@@ -59,6 +59,7 @@ const (
 	kindScan
 	kindSlug
 	kindRelease
+	kindWhy
 )
 
 // github reports whether a kind is GitHub data, shared between clones of one repository.
@@ -94,6 +95,9 @@ func (m *Model) ensure(force bool) tea.Cmd {
 	}
 	if force && m.view == viewConnections && m.opts.Build.Kind != update.Release { // other builds check only when asked
 		cmds = append(cmds, m.load(-1, kindRelease, true))
+	}
+	if m.view == viewRuns {
+		cmds = append(cmds, m.loadWhy(force))
 	}
 	if m.cmpOpen() && (force || due(&m.cmp.res, localAge)) { // an open commit list is git data on screen too
 		cmds = append(cmds, m.loadCompare())
@@ -185,6 +189,29 @@ func (m *Model) loadCompare() tea.Cmd {
 	})
 }
 
+// loadWhy reads why the selected deploy run stopped, once: a finished run's annotations do not change.
+// A failed read retries with the usual backoff, or at once when forced (Ctrl+R).
+func (m *Model) loadWhy(force bool) tea.Cmd {
+	r, ok := m.selectedRun()
+	if !ok || !r.Stopped() {
+		return nil
+	}
+	s := m.why[r.ID]
+	if s == nil {
+		s = &slot[[]string]{}
+		m.why[r.ID] = s
+	}
+	if s.loaded || !force && !due(s, 0) {
+		return nil
+	}
+	dir := "" // gh needs no clone for this; a folder only applies its per-directory gh settings
+	if i := slices.IndexFunc(m.repos, func(rs *repoState) bool { return rs.cfg.Name == r.Repo }); i >= 0 {
+		dir = m.repos[i].cfg.Path
+	}
+	src := m.opts.Source
+	return start(m, s, true, kindWhy, -1, func(ctx context.Context) ([]string, error) { return src.RunReasons(ctx, dir, r) })
+}
+
 // applyResult stores a load result and keeps the same row selected if the list reorders around it.
 func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	var cmd tea.Cmd
@@ -211,6 +238,7 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		if msg.err == nil { // a failed reload stops polling until Ctrl+R
 			cmd = m.schedulePoll()
 		}
+		cmd = tea.Batch(cmd, m.loadWhy(false)) // the selected run may have just stopped
 	}
 	if keys := m.rowKeys(m.view); keep != "" {
 		if i := slices.Index(keys, keep); i >= 0 {

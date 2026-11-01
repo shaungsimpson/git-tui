@@ -243,6 +243,12 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.ContainsRune(strings.Join(m.detailLines(), ""), kitty.Placeholder) {
 		t.Fatal("demo PRs should draw their pictures")
 	}
+	press(m, "g", "d")
+	m.cursor[viewRuns] = slices.IndexFunc(m.runList(), func(r gitx.Run) bool { return r.Conclusion == "cancelled" })
+	drain(m, m.ensure(false))
+	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "Why it stopped") || !strings.Contains(d, "higher priority") {
+		t.Fatalf("demo should show why a deploy run was cancelled:\n%s", d)
+	}
 	press(m, "g", "o", "t")
 	if !strings.Contains(m.flash, "Demo: would open a tab in") {
 		t.Fatalf("demo should show what t does: %q", m.flash)

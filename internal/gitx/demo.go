@@ -195,7 +195,7 @@ func (Demo) DeployRuns(_ context.Context, repo, dir string) ([]Run, error) {
 	if err := demoGHErr(repo, dir); err != nil {
 		return nil, err
 	}
-	states := [][2]string{{"in_progress", ""}, {"completed", "success"}, {"completed", "failure"}, {"completed", "success"}}
+	states := [][2]string{{"in_progress", ""}, {"completed", "success"}, {"completed", "failure"}, {"completed", "cancelled"}}
 	var runs []Run
 	for i, st := range states {
 		if repo != "backend" && i == 0 {
@@ -210,6 +210,16 @@ func (Demo) DeployRuns(_ context.Context, repo, dir string) ([]Run, error) {
 		})
 	}
 	return runs, nil
+}
+
+func (Demo) RunReasons(_ context.Context, dir string, run Run) ([]string, error) {
+	if err := demoGHErr(run.Repo, dir); err != nil {
+		return nil, err
+	}
+	if run.Conclusion == "cancelled" {
+		return []string{"Canceling since a higher priority waiting request for deploy-stage exists"}, nil
+	}
+	return []string{"Process completed with exit code 1."}, nil
 }
 
 func (Demo) Diff(_ context.Context, repo, _ string) ([]string, error) {

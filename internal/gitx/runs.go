@@ -29,6 +29,40 @@ type Run struct {
 // Active reports whether the run has not finished yet.
 func (r Run) Active() bool { return r.Status != "completed" }
 
+// Stopped reports whether the run finished without succeeding: failed, cancelled or timed out.
+func (r Run) Stopped() bool {
+	return !r.Active() && !slices.Contains([]string{"success", "skipped", "neutral"}, r.Conclusion)
+}
+
+// RunReasons reads why a run stopped: the failure annotations GitHub recorded against its jobs, such as
+// "Canceling since a higher priority waiting request … exists" or who cancelled it.
+func (g Git) RunReasons(ctx context.Context, dir string, run Run) ([]string, error) {
+	// shortcut: the first 20 jobs and 20 annotations each; raise if a deploy workflow has more jobs.
+	out, err := command(ctx, dir, ghTimeout, "gh", "api", "graphql", "-f", "url="+run.URL,
+		"-f", "query=query($url:URI!){resource(url:$url){... on WorkflowRun{checkSuite{checkRuns(first:20){nodes{annotations(first:20){nodes{annotationLevel message}}}}}}}}",
+		"--jq", `[.data.resource.checkSuite.checkRuns.nodes[]?.annotations.nodes[] | select(.annotationLevel == "FAILURE") | .message]`)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunReasons(out)
+}
+
+// ParseRunReasons turns a JSON list of annotation messages into distinct one-line reasons, in order.
+func ParseRunReasons(messagesJSON string) ([]string, error) {
+	var msgs []string
+	if err := json.Unmarshal([]byte(messagesJSON), &msgs); err != nil {
+		return nil, fmt.Errorf("parse gh output: %w", err)
+	}
+	var out []string
+	for _, msg := range msgs {
+		line, _, _ := strings.Cut(strings.TrimSpace(msg), "\n")
+		if line != "" && !slices.Contains(out, line) {
+			out = append(out, line)
+		}
+	}
+	return out, nil
+}
+
 // DeployRuns lists recent workflow runs that deploy: runs of workflows named "deploy" (except pull request
 // checks), and runs matching the workflow, event and branch of a run that recorded a GitHub deployment
 // (for example a CI pipeline on main).

@@ -108,6 +108,9 @@ func (m *Model) canTab() bool {
 
 // browseTarget is the web link for the selected row, and how to name it; empty where there is none.
 func (m *Model) browseTarget() (url, what string) {
+	if r, ok := m.selectedRun(); ok {
+		return r.URL, "the " + clean(r.Workflow) + " run"
+	}
 	if m.view != viewPRs {
 		return "", ""
 	}

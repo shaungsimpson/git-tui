@@ -93,7 +93,8 @@ type Model struct {
 	detOff  int
 	cmp     compareState
 	diff    diffState
-	pics    map[string]*picState // by picture link
+	why     map[int64]*slot[[]string] // why each stopped deploy run stopped, by run ID, read when first selected
+	pics    map[string]*picState      // by picture link
 	picIDs  int
 
 	profile Profile
@@ -136,6 +137,7 @@ type Model struct {
 func New(o Options) *Model {
 	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
 	m.gh = map[string]*ghState{}
+	m.why = map[int64]*slot[[]string]{}
 	if o.Release.Version != "" {
 		m.release = slot[update.Latest]{val: o.Release, loaded: true, at: o.Release.Checked}
 	}

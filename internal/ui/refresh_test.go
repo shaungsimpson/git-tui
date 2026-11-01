@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -210,5 +211,20 @@ func TestTimesOfAnUnlistedKindAreZero(t *testing.T) {
 	m := setup(t, demoOpts(), 120, 30)
 	if at, loading := m.times(want{0, kindDiff}); !at.IsZero() || loading {
 		t.Fatalf("a kind times() does not list reports nothing, got %v %v", at, loading)
+	}
+}
+
+func TestRunReasonRetriesOnCtrlR(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "d")
+	m.cursor[viewRuns] = slices.IndexFunc(m.runList(), gitx.Run.Stopped)
+	r, _ := m.selectedRun()
+	m.why[r.ID] = &slot[[]string]{err: errors.New("timed out"), tried: clock(), fails: 1}
+	if m.loadWhy(false) != nil {
+		t.Fatal("a failed reason read should wait for its backoff")
+	}
+	press(m, "ctrl+r")
+	if s := m.why[r.ID]; !s.loaded || len(s.val) == 0 {
+		t.Fatalf("Ctrl+R should read the reason again at once: %+v", s)
 	}
 }

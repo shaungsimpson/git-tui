@@ -21,7 +21,7 @@ func TestOpenPullRequestInBrowser(t *testing.T) {
 
 	m := setup(t, demoOpts(), 140, 40)
 	if m.canBrowse() {
-		t.Fatal("o should only be offered on pull requests")
+		t.Fatal("o should only be offered on pull requests and deploy runs")
 	}
 	press(m, "g", "p", "j")
 	want := m.prList()[1]
@@ -45,6 +45,13 @@ func TestOpenPullRequestInBrowser(t *testing.T) {
 	press(m, "o")
 	if len(opened) != 1 {
 		t.Fatalf("a non-https link must not be opened: %v", opened)
+	}
+
+	press(m, "g", "d", "j")
+	run := m.runList()[1]
+	press(m, "o")
+	if len(opened) != 2 || opened[1] != run.URL || !strings.Contains(m.flash, run.Workflow) {
+		t.Fatalf("o should open the selected deploy run: %v, flash %q", opened, m.flash)
 	}
 }
 

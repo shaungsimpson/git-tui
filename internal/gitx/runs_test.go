@@ -32,3 +32,19 @@ func TestParseDeployRuns(t *testing.T) {
 		t.Fatal("bad JSON must be an error")
 	}
 }
+
+func TestParseRunReasons(t *testing.T) {
+	got, err := ParseRunReasons(`["Canceling since a higher priority waiting request for CI exists","Canceling since a higher priority waiting request for CI exists","Failed to restore\nRequestId: 1","  "]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "Canceling since a higher priority waiting request for CI exists" || got[1] != "Failed to restore" {
+		t.Fatalf("reasons %q", got)
+	}
+	if _, err := ParseRunReasons("not json"); err == nil {
+		t.Fatal("bad JSON must be an error")
+	}
+	if !(Run{Status: "completed", Conclusion: "cancelled"}).Stopped() || (Run{Status: "completed", Conclusion: "success"}).Stopped() || (Run{Status: "in_progress"}).Stopped() {
+		t.Fatal("Stopped: only finished runs that did not succeed")
+	}
+}

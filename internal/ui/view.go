@@ -425,13 +425,13 @@ func (m *Model) runState(r gitx.Run) (string, string, lipgloss.Style) {
 	if !r.Started.IsZero() && r.Updated.After(r.Started) {
 		took = " " + r.Updated.Sub(r.Started).Round(time.Second).String()
 	}
-	switch r.Conclusion {
-	case "success":
+	switch {
+	case r.Stopped():
+		return "!", strings.ReplaceAll(r.Conclusion, "_", " ") + took, m.st.bad
+	case r.Conclusion == "success":
 		return "·", "success" + took, m.st.ok
-	case "skipped", "neutral":
-		return "-", r.Conclusion, m.st.muted
 	}
-	return "!", strings.ReplaceAll(r.Conclusion, "_", " ") + took, m.st.bad
+	return "-", r.Conclusion, m.st.muted
 }
 
 func (m *Model) runSegs(r gitx.Run, w int, showRepo bool) []seg {
@@ -461,10 +461,32 @@ func (m *Model) runDetail(r gitx.Run) []string {
 		" " + clean(r.Title),
 		"",
 	}
+	if r.Stopped() {
+		lines = append(lines, m.whyLines(r)...)
+	}
 	if r.Active() {
 		lines = append(lines, m.st.muted.Render(" Reloaded every 10 seconds while a deploy is running."))
 	}
 	return append(lines, m.st.muted.Render(" Deploy runs: workflows named \"deploy\" (not PR checks) and workflows that recorded a GitHub deployment."))
+}
+
+// whyLines is the reason section of a stopped run, read from its job annotations.
+func (m *Model) whyLines(r gitx.Run) []string {
+	lines := []string{m.st.title.Render(" Why it stopped")}
+	s := m.why[r.ID]
+	switch {
+	case s == nil || !s.loaded && s.err == nil:
+		lines = append(lines, m.st.muted.Render(" Loading from GitHub…"))
+	case !s.loaded:
+		lines = append(lines, m.st.bad.Render(" Could not read why: "+clean(s.err.Error())))
+	case len(s.val) == 0:
+		lines = append(lines, m.st.muted.Render(" GitHub recorded no reason. Press o to read the run's logs."))
+	default:
+		for _, reason := range s.val {
+			lines = append(lines, m.st.bad.Render(" "+clean(reason)))
+		}
+	}
+	return append(lines, "")
 }
 
 // envState is the short marker for an environment row: a newer attempt that failed or is still running.
