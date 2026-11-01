@@ -20,10 +20,14 @@ func TestManageRepositories(t *testing.T) {
 	if !m.scan.open || !m.scan.typing {
 		t.Fatal("a should open the add screen with the folder to edit")
 	}
-	m.input.SetValue(root)
+	t.Chdir(filepath.Dir(root))
+	m.input.SetValue(filepath.Base(root)) // relative to where the app started
 	press(m, "enter")
 	if len(m.scan.res.val) != 3 {
 		t.Fatalf("want 3 repositories found, got %+v", m.scan.res.val)
+	}
+	if !filepath.IsAbs(m.scan.root) && !strings.HasPrefix(m.scan.root, "~/") || !filepath.IsAbs(m.scan.res.val[0].path) {
+		t.Fatalf("a relative folder should be remembered and saved absolute: %q, %q", m.scan.root, m.scan.res.val[0].path)
 	}
 	press(m, "space", "j", "space", "j", "space", "enter")
 	if got := savedNames(t, path); got != "a,b,group/a" {
@@ -177,5 +181,17 @@ func TestRepositoryEditsNeedAReadableConfig(t *testing.T) {
 	press(m, "x", "y")
 	if len(m.repos) != 2 || !strings.Contains(m.flash, "Could not save") {
 		t.Fatalf("a failed save should keep the list and say so: %d, %q", len(m.repos), m.flash)
+	}
+}
+
+func TestScanFolderNamedLikeHome(t *testing.T) {
+	root := gitDirs(t, "~archive/a")
+	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: filepath.Join(t.TempDir(), "config.json"), ConfigErr: config.ErrNotFound}, 120, 30)
+	t.Chdir(root)
+	press(m, "a")
+	m.input.SetValue("~archive") // a relative folder, not the home folder
+	press(m, "enter")
+	if !strings.HasSuffix(m.scan.root, "/~archive") || strings.HasPrefix(m.scan.root, "~") || len(m.scan.res.val) != 1 {
+		t.Fatalf("~archive should be remembered as a full path: %q, found %+v", m.scan.root, m.scan.res.val)
 	}
 }

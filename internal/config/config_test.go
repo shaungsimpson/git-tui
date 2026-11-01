@@ -213,6 +213,10 @@ func TestScan(t *testing.T) {
 	if got, _ := Scan(t.Context(), root, 3); len(got) != 3 || got[2] != filepath.Join(root, "linked") {
 		t.Fatalf("a repository linked into the folder should be found, got %v", got)
 	}
+	t.Chdir(filepath.Dir(root))
+	if got, _ := Scan(t.Context(), filepath.Base(root), 3); len(got) == 0 || got[0] != filepath.Join(root, "a") {
+		t.Fatalf("a relative folder should give absolute paths, got %v", got)
+	}
 	if _, err := Scan(t.Context(), filepath.Join(root, "missing"), 3); err == nil {
 		t.Fatal("a missing root should be an error")
 	}
@@ -244,5 +248,53 @@ func TestSaveWritesThroughALink(t *testing.T) {
 	}
 	if _, err := os.Stat(real + ".bak"); err != nil {
 		t.Fatal("the backup belongs beside the linked file")
+	}
+}
+
+func TestSaveWritesThroughALinkToAMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "config.json")
+	if err := os.Symlink(filepath.Join("dotfiles", "config.json"), link); err != nil { // relative, and not there yet
+		t.Fatal(err)
+	}
+	if err := Save(link, Config{Repositories: []Repo{{Name: "x", Path: "/x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("the link should stay a link")
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "dotfiles", "config.json")); !strings.Contains(string(data), `"x"`) {
+		t.Fatalf("the link's target should be created with the change, got %q", data)
+	}
+}
+
+func TestSaveFollowsAChainOfLinks(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
+	if err := os.Symlink(other, filepath.Join(dir, "dirlink")); err != nil {
+		t.Fatal(err)
+	}
+	// config.json -> next -> dirlink/../target: the ".." goes up from other, where dirlink leads, not from dir.
+	if err := os.Symlink("next", filepath.Join(dir, "config.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("dirlink/../target", filepath.Join(dir, "next")); err != nil { // not filepath.Join, which drops ".."
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(dir, "config.json"), Config{Repositories: []Repo{{Name: "x", Path: "/x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []string{"config.json", "next"} {
+		if fi, _ := os.Lstat(filepath.Join(dir, l)); fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s should stay a link", l)
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(filepath.Dir(other), "target")); !strings.Contains(string(data), `"x"`) {
+		t.Fatalf("the end of the chain should hold the change, got %q", data)
+	}
+	if err := os.Symlink("loop", filepath.Join(dir, "loop")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(dir, "loop"), Config{}); err == nil {
+		t.Fatal("a link loop should be refused, not replaced")
 	}
 }

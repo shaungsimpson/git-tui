@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -18,12 +19,33 @@ type browserMsg struct {
 }
 
 // openBrowser opens a web page in the default browser; a variable so tests never launch one.
-var openBrowser = func(url string) error {
-	name := "xdg-open"
+var openBrowser = func(url string) error { return startBounded(exec.Command(browserCommand(), url), 10*time.Second) }
+
+// browserCommand is the opener for this system: open on macOS, wslview on WSL when installed, else xdg-open.
+func browserCommand() string {
 	if runtime.GOOS == "darwin" {
-		name = "open"
+		return "open"
 	}
-	return exec.Command(name, url).Run()
+	if _, err := exec.LookPath("wslview"); err == nil && os.Getenv("WSL_DISTRO_NAME") != "" {
+		return "wslview" // xdg-open on WSL often has no browser behind it
+	}
+	return "xdg-open"
+}
+
+// startBounded runs cmd and reports its failure, waiting at most wait. Some openers are the browser itself and
+// run until it closes, so one still running then is left open rather than killed.
+func startBounded(cmd *exec.Cmd, wait time.Duration) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1) // buffered: Wait still reaps the process after we stop listening
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(wait):
+		return nil
+	}
 }
 
 type tabMsg struct {

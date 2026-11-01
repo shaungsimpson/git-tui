@@ -106,6 +106,23 @@ func decode(data []byte) (Config, error) {
 func Save(path string, c Config) error {
 	if real, err := filepath.EvalSymlinks(path); err == nil {
 		path = real // write through a link, such as one into a dotfiles repository, rather than replace it
+	} else {
+		// A link to a file not made yet, such as dotfiles not checked out: follow the chain to its end. Targets are
+		// joined as text, never cleaned, so the system resolves a ".." after a linked folder through that folder.
+		for range 40 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				break
+			}
+			if !filepath.IsAbs(target) {
+				dir, _ := filepath.Split(path) // unlike filepath.Dir, keeps ".." and knows both Windows separators
+				target = dir + target
+			}
+			path = target
+		}
+		if _, err := os.Readlink(path); err == nil {
+			return fmt.Errorf("too many links from %s", path)
+		}
 	}
 	out := Config{Repositories: []Repo{}} // an empty list is written as [], not null
 	seen := map[string]bool{}
@@ -152,13 +169,16 @@ const maxScan = 500
 // Scan lists the git repositories under root, at most depth folders down. It does not look inside a repository
 // it found, nor inside hidden, node_modules or vendor folders.
 func Scan(ctx context.Context, root string, depth int) ([]string, error) {
-	root = filepath.Clean(expand(strings.TrimSpace(root)))
+	root, err := filepath.Abs(expand(strings.TrimSpace(root))) // a relative folder would save paths that only work from here
+	if err != nil {
+		return nil, err
+	}
 	walk := root
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		walk = real // WalkDir does not follow a linked root; results still name the path as typed
 	}
 	var found []string
-	err := filepath.WalkDir(walk, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(walk, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if p == walk {
 				return err

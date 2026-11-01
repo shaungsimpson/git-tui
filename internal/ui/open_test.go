@@ -2,11 +2,15 @@ package ui
 
 import (
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenPullRequestInBrowser(t *testing.T) {
@@ -78,5 +82,34 @@ func TestOpenTab(t *testing.T) {
 	press(m, "k", "T")
 	if !strings.Contains(m.flash, "Could not open a split to the right: not allowed") {
 		t.Fatalf("flash %q", m.flash)
+	}
+}
+
+func TestBrowserOpener(t *testing.T) {
+	if err := startBounded(exec.Command("sh", "-c", "exit 3"), time.Second); err == nil {
+		t.Fatal("an opener that fails should say so")
+	}
+	start := time.Now()
+	if err := startBounded(exec.Command("sleep", "5"), 50*time.Millisecond); err != nil || time.Since(start) > time.Second {
+		t.Fatalf("an opener still running is left open without waiting for it: %v after %v", err, time.Since(start))
+	}
+	if runtime.GOOS == "darwin" {
+		if got := browserCommand(); got != "open" {
+			t.Fatalf("macOS opens with open, got %s", got)
+		}
+		return
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "wslview"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("WSL_DISTRO_NAME", "Ubuntu")
+	if got := browserCommand(); got != "wslview" {
+		t.Fatalf("WSL with wslview should use it, got %s", got)
+	}
+	t.Setenv("WSL_DISTRO_NAME", "")
+	if got := browserCommand(); got != "xdg-open" {
+		t.Fatalf("Linux should use xdg-open, got %s", got)
 	}
 }

@@ -265,11 +265,14 @@ func (m *Model) runScan() tea.Cmd {
 		m.flash = "Type a folder to look in."
 		return nil
 	}
+	src, demo := m.opts.Source, m.opts.Demo
+	if abs, err := filepath.Abs(root); err == nil && !demo && root != "~" && !strings.HasPrefix(root, "~/") {
+		root = config.Tilde(abs) // remembered and shown absolute, so it means the same folder from anywhere
+	}
 	m.scan.typing = false
 	m.input.Blur()
 	m.scan.root = root
 	m.scan.cur, m.scan.off, m.scan.res.loaded, m.scan.res.val = 0, 0, false, nil
-	src, demo := m.opts.Source, m.opts.Demo
 	m.savePrefs(func(s *config.State) { s.ScanRoot = root })
 	return start(m, &m.scan.res, true, kindScan, -1, func(ctx context.Context) ([]found, error) {
 		return scanFolders(ctx, src, root, demo)
