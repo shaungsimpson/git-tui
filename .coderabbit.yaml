@@ -1,0 +1,4 @@
+# Reviews run only on request: comment "@coderabbitai review" on a pull request that needs one.
+reviews:
+  auto_review:
+    enabled: false

@@ -4,7 +4,7 @@ Standards for anyone changing this repository, people and coding agents alike. T
 
 ## Definition of done
 
-A pull request is ready when all of these hold. CI checks the first two; reviewers (CodeRabbit included) check the rest.
+A pull request is ready when all of these hold. CI checks the first two; reviewers check the rest. CodeRabbit reviews only on request: comment `@coderabbitai review` on a large or security-sensitive pull request.
 
 1. **Lint passes:** `mise run lint` (golangci-lint with `.golangci.yml`, which includes gofmt and vet).
 2. **Tests pass:** `mise run test`. New logic (a branch, a loop, a parser, anything touching security or the network) comes with a test. Tests never touch the network or a real terminal: use `gitx.Demo`, a fake `Source`, or the package variables such as `fetchPic` and `openBrowser`.
