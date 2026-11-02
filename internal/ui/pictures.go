@@ -28,6 +28,10 @@ type picMsg struct {
 // picBase keeps this app's terminal image IDs ("gt", for git-tui) apart from other programs' in the same terminal.
 const picBase = 0x677400
 
+// picSlots lets two pictures download and decode at a time: a PR body can link dozens, and a large one takes
+// a hundred megabytes or more while it is decoded.
+var picSlots = make(chan struct{}, 2)
+
 // fetchPic loads one picture from the source and encodes it; a variable so tests never touch the network.
 var fetchPic = func(ctx context.Context, src gitx.Source, url string, id int) (termimg.Picture, error) {
 	img, err := src.Image(ctx, url)
@@ -37,19 +41,12 @@ var fetchPic = func(ctx context.Context, src gitx.Source, url string, id int) (t
 	return termimg.EncodeImage(img, id)
 }
 
-// picCols is how wide PR-body pictures are drawn: the details pane, or the list area when details replace it.
-func (m *Model) picCols() int {
-	l := m.layout()
-	w := l.detailW
-	if w == 0 {
-		w = l.mainW
-	}
-	return min(80, max(10, w-3))
-}
+// picCols is how wide PR-body pictures are drawn on the detail page.
+func (m *Model) picCols() int { return min(80, max(10, m.width-3)) }
 
 // ensurePics starts loading the selected PR's GitHub pictures, and re-places loaded ones after a width change.
 func (m *Model) ensurePics() tea.Cmd {
-	if !m.opts.Images || m.view != viewPRs {
+	if !m.opts.Images || m.view != viewPRs || !m.inspect { // pictures show only on the detail page
 		return nil
 	}
 	n, cur, _ := m.list()
@@ -77,6 +74,12 @@ func (m *Model) ensurePics() tea.Cmd {
 			m.picIDs++
 			id, ctx, src := picBase+m.picIDs, m.ctx, m.opts.Source
 			cmds = append(cmds, func() tea.Msg {
+				select {
+				case picSlots <- struct{}{}:
+					defer func() { <-picSlots }()
+				case <-ctx.Done():
+					return picMsg{url, termimg.Picture{}, ctx.Err()}
+				}
 				pic, err := fetchPic(ctx, src, url, id)
 				return picMsg{url, pic, err}
 			})

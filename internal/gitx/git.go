@@ -3,6 +3,7 @@ package gitx
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"image"
@@ -72,19 +73,15 @@ type Source interface {
 }
 
 // Git runs the git (and, for pull requests, gh) executables with a per-call timeout.
-type Git struct {
-	Timeout time.Duration
-}
+type Git struct{}
+
+const gitTimeout = 5 * time.Second // local commands; gh calls use ghTimeout
 
 // logFormat is used with -z: records end in NUL, which git never allows inside a commit message.
 const logFormat = "--format=%H%x1f%an%x1f%aI%x1f%s%x1f%b"
 
 func (g Git) run(ctx context.Context, dir string, args ...string) (string, error) {
-	timeout := g.Timeout
-	if timeout == 0 {
-		timeout = 5 * time.Second
-	}
-	return command(ctx, dir, timeout, "git", args...)
+	return command(ctx, dir, gitTimeout, "git", args...)
 }
 
 // background starts f now and returns a function that waits for its result, so independent calls overlap.
@@ -110,6 +107,7 @@ func command(ctx context.Context, dir string, timeout time.Duration, name string
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	cmd.WaitDelay = time.Second // a program git started (a clean filter) can hold the output open after git is killed
 	// No credential prompts, no index refresh writes, stable output.
 	cmd.Env = gitEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
@@ -161,16 +159,13 @@ func (g Git) Log(ctx context.Context, repo, dir string, n int) ([]Commit, error)
 // unstaged changes and untracked files. External diff and textconv programs are never run.
 func (g Git) Diff(ctx context.Context, repo, dir string) ([]string, error) {
 	noTools := []string{"--no-color", "--no-ext-diff", "--no-textconv"}
-	staged, err := g.run(ctx, dir, append([]string{"diff", "--cached"}, noTools...)...)
-	if err != nil {
-		return nil, err
-	}
-	unstaged, err := g.run(ctx, dir, append([]string{"diff"}, noTools...)...)
-	if err != nil {
-		return nil, err
-	}
+	// The three reads are independent, so they overlap: in a large worktree each can take seconds.
+	stagedF := background(func() (string, error) { return g.run(ctx, dir, append([]string{"diff", "--cached"}, noTools...)...) })
+	unstagedF := background(func() (string, error) { return g.run(ctx, dir, append([]string{"diff"}, noTools...)...) })
 	untracked, err := g.run(ctx, dir, "ls-files", "--others", "--exclude-standard")
-	if err != nil {
+	staged, serr := stagedF()
+	unstaged, uerr := unstagedF()
+	if err := cmp.Or(serr, uerr, err); err != nil { // the first failure, in the order they are shown
 		return nil, err
 	}
 	var files []string

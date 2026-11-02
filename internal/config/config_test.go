@@ -131,6 +131,42 @@ func TestStatePath(t *testing.T) {
 	}
 }
 
+// With no home folder, nothing may be written relative to the current folder, which may be a repository.
+func TestNoHomeWritesNothing(t *testing.T) {
+	for _, k := range []string{"HOME", "USERPROFILE", "home", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "GIT_TUI_CONFIG"} {
+		t.Setenv(k, "")
+	}
+	if p := StatePath(); p != "" {
+		t.Fatalf("StatePath = %q, want none", p)
+	}
+	p := Resolve("")
+	if p != "" {
+		t.Fatalf("Resolve = %q, want none", p)
+	}
+	if _, err := Load(p); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("an empty path must fail to load, so the app never saves to it: %v", err)
+	}
+}
+
+// Two folders of the same name, neither named in the file: the second gets its parent folder, as when adding,
+// so the list can still be saved.
+func TestLoadNamesSameNamedFoldersApart(t *testing.T) {
+	cfg, err := Load(write(t, `{"repositories":[{"path":"/work/api"},{"path":"/personal/api"},{"name":"web","path":"/x/web"},{"path":"/y/web"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, r := range cfg.Repositories {
+		names = append(names, r.Name)
+	}
+	if got := strings.Join(names, ","); got != "api,personal/api,web,y/web" {
+		t.Fatalf("names %s", got)
+	}
+	if err := Save(filepath.Join(t.TempDir(), "c.json"), cfg); err != nil {
+		t.Fatalf("a loaded list should save: %v", err)
+	}
+}
+
 func TestSaveRoundTripsAndKeepsBackup(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	p := write(t, `{"repositories":[{"name":"old","path":"/old"}]}`)

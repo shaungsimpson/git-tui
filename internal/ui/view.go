@@ -26,7 +26,7 @@ const (
 type layout struct {
 	small                 bool
 	bar                   bool // narrow: the repository sidebar collapses to a one-line selector
-	sideW, mainW, detailW int
+	sideW, mainW, detailW int  // detailW is the read-only preview beside the list
 	bodyH                 int
 }
 
@@ -36,25 +36,35 @@ func (m *Model) layout() layout {
 		l.small = true
 		return l
 	}
-	w := m.width
-	if m.width >= 100 {
-		l.sideW = sideW
-		w -= sideW + 1
-	} else {
+	l.sideW, l.mainW, l.detailW = m.widths()
+	if l.sideW == 0 {
 		l.bar = true
 		l.bodyH--
 	}
-	if m.width >= 120 {
-		l.detailW = w * 2 / 5
-		w -= l.detailW + 1
-	}
-	l.mainW = w
 	return l
 }
 
+// widths are the sidebar, list and preview widths. They depend on the window width alone, so per-row callers
+// such as stacked use this rather than layout, whose height needs the footer and with it every list.
+func (m *Model) widths() (side, main, detail int) {
+	main = m.width
+	if m.width >= 100 {
+		side = sideW
+		main -= sideW + 1
+	}
+	if m.width >= 120 {
+		detail = main * 2 / 5
+		main -= detail + 1
+	}
+	return side, main, detail
+}
+
 // listHeight is the number of list rows visible in view v; Update uses it to keep the cursor on screen.
-func (m *Model) listHeight(v viewID) int {
-	h := m.layout().bodyH - 1
+func (m *Model) listHeight(v viewID) int { return m.rowsIn(v, m.layout().bodyH) }
+
+// rowsIn is listHeight for a known body height, so clampAll works the layout out once for every view.
+func (m *Model) rowsIn(v viewID, bodyH int) int {
+	h := bodyH - 1
 	if v == viewRepo {
 		if info := m.repoInfo(); len(info) > 0 {
 			h -= len(info) + 1
@@ -71,7 +81,7 @@ const stackedBelow = 100
 
 // stacked reports whether view v draws each row on two lines.
 func (m *Model) stacked(v viewID) bool {
-	if m.layout().mainW >= stackedBelow {
+	if _, w, _ := m.widths(); w >= stackedBelow {
 		return false
 	}
 	return v == viewActivity || v == viewPRs || v == viewRepo || v == viewRuns || m.cmp.open && m.cmp.view == v
@@ -113,18 +123,16 @@ func (m *Model) render() string {
 		rows = append(rows, box(m.diffLines(l.bodyH), m.width, l.bodyH))
 	} else if m.scan.open {
 		rows = append(rows, box(m.scanLines(l.bodyH), m.width, l.bodyH))
+	} else if m.inspect {
+		rows = append(rows, box(m.detailPane(m.width, l.bodyH), m.width, l.bodyH))
 	} else {
 		var cols []string
 		if l.sideW > 0 {
 			cols = append(cols, box(m.sidebarLines(l.bodyH), l.sideW, l.bodyH))
 		}
-		if m.inspect && l.detailW == 0 {
-			cols = append(cols, box(m.detailPane(l.mainW, l.bodyH), l.mainW, l.bodyH))
-		} else {
-			cols = append(cols, box(m.mainLines(l.mainW, l.bodyH), l.mainW, l.bodyH))
-		}
+		cols = append(cols, box(m.mainLines(l.mainW, l.bodyH), l.mainW, l.bodyH))
 		if l.detailW > 0 {
-			cols = append(cols, box(m.detailPane(l.detailW, l.bodyH), l.detailW, l.bodyH))
+			cols = append(cols, box(m.previewLines(l.detailW), l.detailW, l.bodyH))
 		}
 		rows = append(rows, m.join(cols, l.bodyH))
 	}
@@ -438,7 +446,7 @@ func (m *Model) tagBase() string {
 // runState is the marker, label and style for a run: still going, or how it finished and how long it took.
 func (m *Model) runState(r gitx.Run) (string, string, lipgloss.Style) {
 	if r.Active() {
-		return "…", strings.ReplaceAll(r.Status, "_", " "), m.st.warn
+		return "…", strings.ReplaceAll(clean(r.Status), "_", " "), m.st.warn
 	}
 	took := ""
 	if !r.Started.IsZero() && r.Updated.After(r.Started) {
@@ -446,11 +454,11 @@ func (m *Model) runState(r gitx.Run) (string, string, lipgloss.Style) {
 	}
 	switch {
 	case r.Stopped():
-		return "!", strings.ReplaceAll(r.Conclusion, "_", " ") + took, m.st.bad
+		return "!", strings.ReplaceAll(clean(r.Conclusion), "_", " ") + took, m.st.bad
 	case r.Conclusion == "success":
 		return "·", "success" + took, m.st.ok
 	}
-	return "-", r.Conclusion, m.st.muted
+	return "-", clean(r.Conclusion), m.st.muted
 }
 
 func (m *Model) runSegs(r gitx.Run, w int, showRepo bool) []seg {
@@ -473,9 +481,10 @@ func (m *Model) runDetail(r gitx.Run) []string {
 		m.kv("Status", state, st),
 		m.kv("Trigger", clean(r.Event), m.st.text),
 		m.kv("Branch", clean(r.Branch), m.st.accent),
-		m.kv("Commit", r.Commit, m.st.text),
+		m.kv("Commit", clean(r.Commit), m.st.text),
 		m.kv("Started", m.when(r.Started), m.st.text),
-		m.kv("Link", clean(r.URL), m.st.muted),
+		"",
+		m.kv("Link", clean(r.URL), m.st.muted), // after the blank, so only the page shows it
 		"",
 		" " + clean(r.Title),
 		"",
@@ -484,7 +493,7 @@ func (m *Model) runDetail(r gitx.Run) []string {
 		lines = append(lines, m.whyLines(r)...)
 	}
 	if r.Active() {
-		lines = append(lines, m.st.muted.Render(" Reloaded every 10 seconds while a deploy is running."))
+		lines = append(lines, m.st.muted.Render(" Reloaded every minute while a deploy is running, less often once it has gone on for 30 minutes."))
 	}
 	return append(lines, m.st.muted.Render(" Deploy runs: workflows named \"deploy\" (not PR checks) and workflows that recorded a GitHub deployment."))
 }
@@ -517,9 +526,9 @@ func (m *Model) envState(e envRow) (string, string, lipgloss.Style) {
 		}
 		return "·", "", m.st.ok
 	case "FAILURE", "ERROR":
-		return "!", "last attempt " + strings.ToLower(e.Latest), m.st.bad
+		return "!", "last attempt " + strings.ToLower(clean(e.Latest)), m.st.bad
 	}
-	return "…", strings.ToLower(strings.ReplaceAll(e.Latest, "_", " ")), m.st.warn
+	return "…", strings.ToLower(strings.ReplaceAll(clean(e.Latest), "_", " ")), m.st.warn
 }
 
 func (m *Model) envSegs(e envRow, w int, showRepo bool) []seg {
@@ -532,7 +541,7 @@ func (m *Model) envSegs(e envRow, w int, showRepo bool) []seg {
 	if e.Ref == e.Commit { // deployed by commit ID; the ID is already in its own column
 		ref = ""
 	}
-	segs = append(segs, seg{pad(clean(e.Environment), 17), m.st.text}, seg{pad(short(e.Commit), 7), m.st.muted})
+	segs = append(segs, seg{pad(clean(e.Environment), 17), m.st.text}, seg{pad(short(clean(e.Commit)), 7), m.st.muted})
 	if !e.When.IsZero() {
 		segs = append(segs, seg{m.stamp(e.When, w) + "  ", m.st.muted})
 	}
@@ -543,7 +552,7 @@ func (m *Model) envDetail(e envRow) []string {
 	_, note, st := m.envState(e)
 	lines := []string{
 		" " + m.st.text.Bold(true).Render(clean(e.Repo)+" · "+clean(e.Environment)),
-		m.kv("Commit", e.Commit, m.st.accent),
+		m.kv("Commit", clean(e.Commit), m.st.accent),
 	}
 	if e.Ref != "" && e.Ref != e.Commit {
 		lines = append(lines, m.kv("Ref", clean(e.Ref), m.st.text))
@@ -619,7 +628,6 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		m.kv("Review", review, rst),
 		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
 		m.kv("Updated", m.when(p.Updated), m.st.text),
-		m.kv("Link", clean(p.URL), m.st.muted),
 	}
 	if p.ForMe {
 		lines = slices.Insert(lines, 5, m.kv("Requested", "★ your review", m.st.accent))
@@ -627,6 +635,7 @@ func (m *Model) prDetail(p gitx.PR) []string {
 	if m.ready(p) {
 		lines = slices.Insert(lines, 5, m.kv("Ready", "✔ approved, checks passing", m.st.ok))
 	}
+	lines = append(lines, "", m.kv("Link", clean(p.URL), m.st.muted)) // after the blank, so only the page shows it
 	if strings.TrimSpace(p.Body) != "" {
 		lines = append(lines, "", m.st.title.Render(" Description"))
 		shown, more := bodyLines(p.Body)
@@ -737,7 +746,9 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 		tags := m.tagList()
 		title := "Tags · " + m.repoLabel() + filter
 		if base := m.tagBase(); base != "" {
-			title += " · base " + clean(base)
+			title += " · base " + clean(base) + " · enter compares, or on the base clears it"
+		} else {
+			title += " · enter picks the comparison base"
 		}
 		nameW := 8
 		for _, t := range tags {
@@ -891,7 +902,7 @@ func slotMessage[T any](m *Model, s *slot[T], loading, empty string) (string, li
 	return empty, m.st.muted
 }
 
-// ---- repository info and detail pane ----
+// ---- repository info and detail page ----
 
 func (m *Model) kv(label, value string, st lipgloss.Style) string {
 	return " " + m.st.muted.Render(pad(label, 9)) + st.Render(value)
@@ -993,20 +1004,11 @@ func (m *Model) detailLines() []string {
 		return m.runDetail(m.runList()[i])
 	case viewTags:
 		t := m.tagList()[i]
-		hint := "Enter marks this tag as the comparison base."
-		switch base := m.tagBase(); {
-		case t.Name == base:
-			hint = "This is the comparison base. Enter clears it."
-		case base != "":
-			hint = "Enter lists commits between " + clean(base) + " and this tag."
-		}
 		return []string{
 			m.kv("Tag", clean(t.Name), m.st.accent),
 			m.kv("Commit", t.Commit, m.st.text),
 			m.kv("Date", m.when(t.When), m.st.text),
 			m.kv("Message", clean(t.Subject), m.st.text),
-			"",
-			m.st.muted.Render(" " + hint),
 		}
 	default:
 		c := m.connections()[i]
@@ -1018,9 +1020,10 @@ func (m *Model) detailLines() []string {
 	}
 }
 
-func (m *Model) detailBody(w int) []string {
+// wrapLines wraps detail lines to w columns, keeping their one-space indent.
+func wrapLines(lines []string, w int) []string {
 	var body []string
-	for _, l := range m.detailLines() {
+	for _, l := range lines {
 		wrapped := lipgloss.NewStyle().Width(max(2, w-1)).Render(strings.TrimPrefix(l, " "))
 		for _, part := range strings.Split(wrapped, "\n") {
 			body = append(body, " "+part)
@@ -1029,20 +1032,46 @@ func (m *Model) detailBody(w int) []string {
 	return body
 }
 
-// maxDetailOff is how far the detail pane can scroll at the current size.
+// maxDetailOff is how far the detail page can scroll at the current size.
 func (m *Model) maxDetailOff() int {
-	l := m.layout()
-	w := l.detailW
-	if w == 0 {
-		w = l.mainW
-	}
-	return max(0, len(m.detailBody(w))-(l.bodyH-1))
+	return max(0, len(wrapLines(m.detailLines(), m.width))-(m.layout().bodyH-1))
 }
 
+// detailPane is the detail page; its title says where the item sits in the list, for stepping with J/K.
 func (m *Model) detailPane(w, h int) []string {
-	body := m.detailBody(w)
+	body := wrapLines(m.detailLines(), w)
 	off := min(m.detOff, max(0, len(body)-(h-1)))
-	return append([]string{m.paneTitle(paneDetail, " Details")}, body[off:]...)
+	title := " Details · " + viewNames[m.view]
+	if m.cmpOpen() {
+		title = " Details · " + m.cmp.title
+	}
+	if n, cur, _ := m.list(); n > 0 {
+		title += fmt.Sprintf(" · %d of %d", *cur+1, n)
+	}
+	return append([]string{m.paneTitle(paneDetail, title)}, body[off:]...)
+}
+
+// previewLines is the pane beside the list: the head of the selected row's details, up to their first long
+// section, then the shortcuts that act on it. It never takes focus; v opens the whole detail page.
+func (m *Model) previewLines(w int) []string {
+	head := m.detailLines()
+	if m.view != viewConnections || m.cmpOpen() { // a connection's details are all short notes
+		if i := slices.Index(head, ""); i >= 0 {
+			head = head[:i]
+		}
+	}
+	lines := append([]string{m.st.title.Render(" Preview")}, wrapLines(head, w)...)
+	var keys []string
+	for _, a := range actions {
+		if a.item && m.focus == paneMain && a.available(m) { // from the sidebar, t and T act on its repository instead
+			h := a.key.Help()
+			keys = append(keys, " "+m.st.key.Render(pad(h.Key, 9))+m.st.muted.Render(h.Desc))
+		}
+	}
+	if len(keys) > 0 {
+		lines = append(append(lines, "", m.st.title.Render(" Shortcuts")), keys...)
+	}
+	return lines
 }
 
 // ---- help, status and footer ----
@@ -1173,11 +1202,11 @@ func (m *Model) statusLine() string {
 		left = m.st.muted.Render(" Read-only local git · " + clean(m.opts.ConfigPath))
 	}
 	right := ""
-	if len(h.errs) > 0 && h.loading == 0 { // failed loads only retry on Ctrl+R, so say so
+	if len(h.errs) > 0 && h.loading == 0 { // failed loads retry with a backoff of minutes; Ctrl+R retries now
 		right = m.st.key.Render("ctrl+r") + m.st.muted.Render(" retry ")
 	}
 	if m.polling {
-		right += m.st.muted.Render("watching running deploys ")
+		right += m.st.muted.Render("watching running deploys · every " + strconv.Itoa(int(m.pollWait/time.Minute)) + "m ")
 	}
 	if m.pendingG {
 		right += m.st.key.Render("g… ")

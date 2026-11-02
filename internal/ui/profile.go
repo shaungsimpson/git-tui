@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -355,7 +356,7 @@ func (m *Model) monogram(ascii bool) []string {
 	v := m.me.val
 	initials := ""
 	for _, w := range strings.Fields(clean(firstOf(v.Name, v.GitName, v.Login, "?"))) {
-		if r := []rune(w); len(initials) < 2 {
+		if r := []rune(w); utf8.RuneCountInString(initials) < 2 { // letters, not bytes: É is two
 			initials += strings.ToUpper(string(r[0]))
 		}
 	}

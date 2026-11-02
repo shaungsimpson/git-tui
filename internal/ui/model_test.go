@@ -34,38 +34,149 @@ func TestNavigationAndFocus(t *testing.T) {
 	if m.cursor[viewOverview] != 1 {
 		t.Fatalf("cursor %d, want 1", m.cursor[viewOverview])
 	}
-	press(m, "tab")
-	if m.focus != paneDetail {
-		t.Fatalf("wide layout: tab from main should reach detail, got %v", m.focus)
-	}
 	press(m, "tab", "j")
 	if m.focus != paneSidebar || m.repo != 1 {
 		t.Fatalf("sidebar j should select first repo: focus %v repo %d", m.focus, m.repo)
 	}
 	press(m, "shift+tab")
-	if m.focus != paneDetail {
+	if m.focus != paneMain {
 		t.Fatalf("shift+tab wraps backwards, got %v", m.focus)
 	}
 	// Enter on an overview row opens the Repository view for it.
-	press(m, "esc", "enter")
+	press(m, "enter")
 	if m.view != viewRepo || m.repo != 2 {
 		t.Fatalf("enter: view %v repo %d", m.view, m.repo)
 	}
 }
 
-func TestNarrowInspectAndBack(t *testing.T) {
-	m := setup(t, demoOpts(), 80, 24)
-	press(m, "g", "a")
-	press(m, "enter")
-	if !m.inspect || m.focus != paneDetail {
-		t.Fatal("enter should open the detail level on narrow layouts")
+func TestDetailPage(t *testing.T) {
+	for _, w := range []int{80, 140} {
+		m := setup(t, demoOpts(), w, 24)
+		press(m, "g", "a", "enter")
+		if m.inspect {
+			t.Fatalf("%d: enter has no job in Activity; v opens the page", w)
+		}
+		press(m, "v")
+		out := ansi.Strip(m.render())
+		if !m.inspect || m.focus != paneDetail || !strings.Contains(out, "Details · Activity · 1 of") || strings.Contains(out, "Repositories") {
+			t.Fatalf("%d: v should open the page across the full width:\n%s", w, out)
+		}
+		press(m, "tab")
+		if m.focus != paneDetail {
+			t.Fatalf("%d: tab must not leave the page for a hidden pane", w)
+		}
+		press(m, "J", "J", "K")
+		if m.cursor[viewActivity] != 1 || m.detOff != 0 || !strings.Contains(ansi.Strip(m.render()), "2 of") {
+			t.Fatalf("%d: J/K should step through the list behind the page: cursor %d", w, m.cursor[viewActivity])
+		}
+		press(m, "esc")
+		if m.inspect || m.focus != paneMain || m.cursor[viewActivity] != 1 {
+			t.Fatalf("%d: esc should restore the list on the last item viewed", w)
+		}
 	}
-	if !strings.Contains(m.render(), "Details") {
-		t.Fatal("inspect should render details in place of the list")
+}
+
+func TestDetailPageKeepsItsItemOnRefresh(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "p", "v")
+	p := m.prList()[0]
+	i := slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Name == p.Repo })
+	newer := gitx.PR{Repo: p.Repo, Number: 9999, Title: "Newer", Updated: p.Updated.Add(time.Hour)}
+	m.Update(answer(&m.repos[i].gh.prs, kindPRs, i, append([]gitx.PR{newer}, m.repos[i].gh.prs.val...), nil))
+	if got := m.prList()[m.cursor[viewPRs]]; got.Number != p.Number {
+		t.Fatalf("a refresh swapped the open page from #%d to #%d", p.Number, got.Number)
+	}
+}
+
+func TestDetailPageEmptiedList(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "d", "v")
+	for _, r := range m.repos { // a refresh that finds no runs
+		if r.gh != nil {
+			r.gh.runs.val = nil
+		}
+	}
+	press(m, "J", "K")
+	if m.cursor[viewRuns] < 0 {
+		t.Fatalf("J/K on an emptied list moved the cursor to %d", m.cursor[viewRuns])
+	}
+	_ = m.render()
+}
+
+func TestPreviewPane(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "p")
+	out := ansi.Strip(m.render())
+	for _, want := range []string{"Preview", "Review", "Shortcuts", "view details", "open in browser"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the preview should show %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Description") || strings.Contains(out, "Files changed") || strings.Contains(out, "Link") {
+		t.Fatal("the preview keeps to the short head; long sections are for the page")
+	}
+	press(m, "g", "o", "tab")
+	if out := ansi.Strip(m.render()); m.focus != paneSidebar || strings.Contains(out, "new tab") || strings.Contains(out, "Shortcuts") {
+		t.Fatal("from the sidebar, t acts on its repository, so the preview of a list row must not offer it")
+	}
+	press(m, "tab")
+	if m.focus != paneMain {
+		t.Fatalf("the preview never takes focus: tab twice should return to the list, got %v", m.focus)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 119, Height: 40})
+	if strings.Contains(ansi.Strip(m.render()), "Preview") {
+		t.Fatal("the preview gives way under 120 columns")
+	}
+}
+
+func TestDetailPageEnterKeepsItsJobs(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "v")
+	if !m.inspect || !strings.Contains(ansi.Strip(m.render()), "Details · Overview") {
+		t.Fatal("v should open an Overview row's page")
+	}
+	press(m, "esc", "enter")
+	if m.view != viewRepo || m.inspect {
+		t.Fatal("enter on Overview still opens the Repository view")
+	}
+	press(m, "g", "t", "v")
+	if !m.inspect {
+		t.Fatal("v should open a tag's page")
+	}
+	press(m, "esc", "enter")
+	if m.inspect || m.tagBase() == "" {
+		t.Fatal("enter on Tags still picks the base")
+	}
+}
+
+func TestDetailPageScrollsAndStacksDiff(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 16)
+	press(m, "g", "p")
+	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return len(p.Files) > 0 })
+	press(m, "v")
+	end := m.maxDetailOff()
+	if end == 0 {
+		t.Fatal("setup: the PR page should need scrolling at this height")
+	}
+	press(m, "pgdown", "space", "pgdown", "pgdown", "pgdown")
+	if m.detOff != end {
+		t.Fatalf("paging stops at the end: off %d, want %d", m.detOff, end)
+	}
+	press(m, "pgup", "pgup", "pgup", "pgup", "pgup")
+	if m.detOff != 0 {
+		t.Fatalf("paging stops at the top: off %d", m.detOff)
+	}
+	press(m, "d")
+	if !m.diff.open || !m.inspect {
+		t.Fatal("d on the PR page should open its diff above the page")
 	}
 	press(m, "esc")
-	if m.inspect || m.focus != paneMain {
-		t.Fatal("esc should restore the list")
+	if m.diff.open || !m.inspect {
+		t.Fatal("esc on the diff should return to the PR page")
+	}
+	press(m, "esc")
+	if m.inspect {
+		t.Fatal("esc on the page should return to the list")
 	}
 }
 
@@ -143,13 +254,10 @@ func TestEscHintOnlyWhereItActs(t *testing.T) {
 	}
 }
 
-func TestShrinkingKeepsDetailFocusVisible(t *testing.T) {
+func TestDetailPageSurvivesResize(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
-	press(m, "tab")
-	if m.focus != paneDetail {
-		t.Fatal("setup: tab should focus details")
-	}
-	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	press(m, "v")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	if !m.inspect || !slices.Contains(m.panes(), m.focus) {
 		t.Fatalf("focus %v is not a visible pane", m.focus)
 	}
@@ -239,17 +347,24 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if len(colours) < 3 {
 		t.Fatalf("demo authors should show several author colours, got %d", len(colours))
 	}
+	press(m, "v")                 // pictures load once the page is open
 	for url, st := range m.pics { // a fetch drain gave up on under -race; finish it here, through the same demo source
 		if st.loading {
 			pic, err := fetchPic(context.Background(), m.opts.Source, url, picBase+99)
 			m.Update(picMsg{url, pic, err})
 		}
 	}
-	if !strings.ContainsRune(strings.Join(m.detailLines(), ""), kitty.Placeholder) {
-		t.Fatal("demo PRs should draw their pictures")
+	if page := m.render(); !strings.ContainsRune(page, kitty.Placeholder) || !strings.Contains(ansi.Strip(page), "Details · Pull requests") {
+		t.Fatal("demo PRs should draw their pictures on the detail page")
 	}
+	press(m, "esc")
 	press(m, "g", "d")
 	m.cursor[viewRuns] = slices.IndexFunc(m.runList(), func(r gitx.Run) bool { return r.Conclusion == "cancelled" })
+	drain(m, m.ensure(false))
+	if s := m.why[m.runList()[m.cursor[viewRuns]].ID]; s != nil && (s.loaded || s.loading) {
+		t.Fatal("a run's reasons load only for the detail page")
+	}
+	press(m, "v")
 	drain(m, m.ensure(false))
 	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "Why it stopped") || !strings.Contains(d, "higher priority") {
 		t.Fatalf("demo should show why a deploy run was cancelled:\n%s", d)

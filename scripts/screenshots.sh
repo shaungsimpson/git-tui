@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 out=docs/images
 ghostty=/Applications/Ghostty.app
 [[ $(uname) == Darwin && -d $ghostty ]] || { echo "needs macOS and $ghostty" >&2; exit 1; }
+command -v cwebp >/dev/null || { echo "needs cwebp: brew install webp" >&2; exit 1; }
 mkdir -p "$out"
 go build -o bin/git-tui ./cmd/git-tui
 bin=$PWD/bin/git-tui
@@ -68,11 +69,15 @@ keys() {
   sleep 0.7 # let pictures load and the frame settle
 }
 
-# shot captures the window without its shadow, scaled to at most 1600 pixels wide.
+# shot captures the window without its shadow, scaled to at most 1600 pixels wide, as lossy WebP: the pictures
+# illustrate, and quality 90 keeps text crisp at about a fifth of a PNG's size, so the history grows slowly.
 shot() {
-  screencapture -o -x -l"$(window "$pid")" "$out/$1.png"
-  sips -Z 1600 "$out/$1.png" >/dev/null
-  echo "$out/$1.png"
+  local png="$out/$1.png"
+  screencapture -o -x -l"$(window "$pid")" "$png"
+  sips -Z 1600 "$png" >/dev/null
+  cwebp -quiet -q 90 "$png" -o "$out/$1.webp"
+  rm "$png"
+  echo "$out/$1.webp"
 }
 
 # finish closes the window by ending its process; no keystroke, so nothing can reach another app.
@@ -86,7 +91,9 @@ launch 140 40
 shot overview
 keys g p
 shot pull-requests
-keys b
+keys v
+shot detail
+keys esc b
 shot header-ascii
 keys b
 shot header-text

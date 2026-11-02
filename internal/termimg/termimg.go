@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -65,8 +66,8 @@ func Links(line string) []Link {
 // cannot make the app fetch an arbitrary or internal address.
 func Allowed(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil {
-		return false
+	if err != nil || u.Scheme != "https" || u.User != nil || path.Clean(u.Path) != u.Path {
+		return false // an unclean path such as assets/../../settings would leave the attachments folder
 	}
 	switch u.Host {
 	case "github.com":

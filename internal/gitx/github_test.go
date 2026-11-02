@@ -13,6 +13,7 @@ func TestRepoSlug(t *testing.T) {
 		"git@github.com:/acme/backend.git":           "acme/backend", // real remote form
 		"https://github.com/acme/personal-site":      "acme/personal-site",
 		"ssh://git@github.com/owner/repo.git":        "owner/repo",
+		"https://github.com/owner/repo.git/":         "owner/repo",   // git accepts the trailing slash
 		"git@github.com-work:acme/backend.git":       "acme/backend", // SSH host alias
 		"ssh://git@github.com-work/owner/repo.git":   "owner/repo",
 		"git@gitlab.com:owner/repo.git":              "",

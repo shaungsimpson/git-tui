@@ -165,6 +165,9 @@ func CachePath() string {
 	dir := os.Getenv("XDG_CACHE_HOME")
 	if dir == "" {
 		home, _ := os.UserHomeDir()
+		if home == "" {
+			return "" // no cache; never the current folder, which may be a repository
+		}
 		dir = filepath.Join(home, ".cache")
 	}
 	return filepath.Join(dir, "git-tui", "release.json")

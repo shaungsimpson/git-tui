@@ -257,3 +257,19 @@ func TestBackgroundOverlaps(t *testing.T) {
 		t.Fatalf("got %q, %v", x+y, err)
 	}
 }
+
+// A program the tool started, such as a git clean filter, can keep the output pipe open after the timeout
+// kills the tool; the call must still return close to its timeout.
+func TestCommandTimeoutOutlivedByChild(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	start := time.Now()
+	_, err := command(context.Background(), t.TempDir(), 100*time.Millisecond, "sh", "-c", "sleep 10 & wait")
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("want a timeout, got %v", err)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("returned after %s, long after its timeout", d)
+	}
+}

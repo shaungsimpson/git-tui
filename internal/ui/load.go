@@ -193,7 +193,7 @@ func (m *Model) loadCompare() tea.Cmd {
 // A failed read retries with the usual backoff, or at once when forced (Ctrl+R).
 func (m *Model) loadWhy(force bool) tea.Cmd {
 	r, ok := m.selectedRun()
-	if !ok || !r.Stopped() {
+	if !ok || !r.Stopped() || !m.inspect { // only the detail page shows the reasons
 		return nil
 	}
 	s := m.why[r.ID]
@@ -215,8 +215,10 @@ func (m *Model) loadWhy(force bool) tea.Cmd {
 // applyResult stores a load result and keeps the same row selected if the list reorders around it.
 func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	var cmd tea.Cmd
-	keep := "" // a cursor on the first row stays on top, so newest-first lists show new rows on load
-	if keys := m.rowKeys(m.view); m.cursor[m.view] > 0 && m.cursor[m.view] < len(keys) {
+	// A cursor on the first row stays on top, so newest-first lists show new rows on load; the detail page
+	// keeps its item instead, so a refresh never swaps what someone is reading.
+	keep := ""
+	if keys := m.rowKeys(m.view); (m.cursor[m.view] > 0 || m.inspect) && m.cursor[m.view] < len(keys) {
 		keep = keys[m.cursor[m.view]]
 	}
 	if msg.store != nil {
@@ -235,7 +237,7 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	case kindDeps:
 		cmd = m.followDeploy(msg.repo)
 	case kindRuns:
-		if msg.err == nil { // a failed reload stops polling until Ctrl+R
+		if msg.err == nil { // a failed reload stops polling until the next key or Ctrl+R
 			cmd = m.schedulePoll()
 		}
 		cmd = tea.Batch(cmd, m.loadWhy(false)) // the selected run may have just stopped

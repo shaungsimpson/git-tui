@@ -68,11 +68,17 @@ func (m *Model) cancelCompare() {
 	}
 }
 
+// resetCompare drops the commit list and any load of it, leaving a fresh state owned by view v. The new
+// generation drops a result that arrives late.
+func (m *Model) resetCompare(v viewID) {
+	m.cancelCompare()
+	m.cmp = compareState{view: v, res: slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}}
+}
+
 func (m *Model) pickTag(name string) tea.Cmd {
 	c := &m.cmp
 	if c.view != viewTags { // state left by Environments; start a fresh tag selection
-		m.cancelCompare()
-		*c = compareState{view: viewTags, res: slot[[]gitx.Commit]{gen: c.res.gen + 1}}
+		m.resetCompare(viewTags)
 	}
 	if c.base == "" {
 		c.base, c.repo = name, m.repo

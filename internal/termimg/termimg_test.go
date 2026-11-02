@@ -3,6 +3,8 @@ package termimg
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/png"
 	"net/http"
@@ -34,6 +36,11 @@ func TestAllowed(t *testing.T) {
 		"https://evil.example/x.png":                                false,
 		"https://user@github.com/user-attachments/assets/x":         false,
 		"https://169.254.169.254/latest/meta-data":                  false,
+		"https://github.com/user-attachments/assets/../../settings": false, // leaves the attachments folder
+		"https://github.com/user-attachments/assets/%2e%2e/x":       false,
+		"https://github.com/user-attachments/assets//x":             false,
+		"https://github.com:443/user-attachments/assets/x":          false, // a port is not the host
+		"https://github.com.evil.example/user-attachments/assets/x": false,
 	} {
 		if Allowed(raw) != want {
 			t.Errorf("Allowed(%q) != %v", raw, want)
@@ -75,6 +82,32 @@ func TestTokenStaysWithGitHub(t *testing.T) {
 	}
 	if storageAuth != "" {
 		t.Fatalf("the token leaked to the storage host: %q", storageAuth)
+	}
+}
+
+func TestLimits(t *testing.T) {
+	// A PNG header claiming 5000×5000 is refused before any pixel is decoded.
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	b := buf.Bytes()
+	binary.BigEndian.PutUint32(b[16:], 5000) // IHDR width, then height
+	binary.BigEndian.PutUint32(b[20:], 5000)
+	binary.BigEndian.PutUint32(b[29:], crc32.ChecksumIEEE(b[12:29])) // the IHDR checksum covers its type and data
+	if _, err := Decode(b); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("a 25-megapixel picture should be refused, got %v", err)
+	}
+
+	big := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(make([]byte, maxBytes+1))
+	}))
+	defer big.Close()
+	real := client.Transport
+	client.Transport = big.Client().Transport
+	t.Cleanup(func() { client.Transport = real })
+	if _, err := download(context.Background(), big.URL+"/x.png", ""); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("a download over 10 MB should be refused, got %v", err)
 	}
 }
 

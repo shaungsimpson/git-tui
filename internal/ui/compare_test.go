@@ -119,7 +119,7 @@ func TestDiffScrolls(t *testing.T) {
 
 func TestTagComparison(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
-	press(m, "tab", "tab", "j", "tab", "g", "t")
+	press(m, "tab", "j", "tab", "g", "t")
 	if m.repo != 1 || m.view != viewTags || m.focus != paneMain {
 		t.Fatalf("setup: repo %d view %v focus %v", m.repo, m.view, m.focus)
 	}

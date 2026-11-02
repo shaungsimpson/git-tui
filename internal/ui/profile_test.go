@@ -147,6 +147,10 @@ func TestProfileAvatarFallbacks(t *testing.T) {
 	if art := ansi.Strip(strings.Join(m.avatarArt(false), "\n")); !strings.Contains(art, "╭") || !strings.Contains(art, "MB") {
 		t.Fatalf("without a picture the avatar is framed initials:\n%s", art)
 	}
+	m.me.val = gitx.Viewer{Name: "Élodie Martin"} // É is two bytes but one letter
+	if art := ansi.Strip(strings.Join(m.avatarArt(false), "\n")); !strings.Contains(art, "ÉM") {
+		t.Fatalf("initials count letters, not bytes:\n%s", art)
+	}
 	if got := sized(viewer.AvatarURL, 64); got != "https://avatars.githubusercontent.com/u/1?s=64&v=4" {
 		t.Fatalf("sized: %s", got)
 	}

@@ -80,7 +80,7 @@ func (m *Model) connRepo() int {
 	return -1
 }
 
-func (m *Model) canManage() bool { return m.canEdit() && m.connRepo() >= 0 }
+func (m *Model) canManage() bool { return m.canEdit() && !m.inspect && m.connRepo() >= 0 }
 
 func (m *Model) canFix() bool {
 	i := m.connRepo()
@@ -136,8 +136,7 @@ func (m *Model) applyRepos(next []config.Repo, done string) tea.Cmd {
 		}
 	}
 	m.closeDiff()
-	m.cancelCompare()
-	m.cmp = compareState{res: slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}}
+	m.resetCompare(viewOverview) // no view owns it
 	m.repo = slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Path == sel }) + 1
 	m.clampAll()
 	m.flash = done

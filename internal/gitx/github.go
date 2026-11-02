@@ -147,7 +147,7 @@ func RepoSlug(remote string) (string, bool) {
 	if host != "github.com" && (web || !strings.HasPrefix(host, "github.com-")) {
 		return "", false
 	}
-	s = strings.Trim(strings.TrimSuffix(path, ".git"), "/") // remotes may be written "github.com:/owner/name"
+	s = strings.TrimSuffix(strings.Trim(path, "/"), ".git") // remotes may be written "github.com:/owner/name" or ".../name.git/"
 	if parts := strings.Split(s, "/"); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", false
 	}

@@ -2,7 +2,7 @@
 
 A terminal command centre for your repositories. It is **read-only**: it shows local Git state, recent commits, open pull requests, tag-to-tag commit lists, what is deployed to each environment, what is not deployed yet, and deploy runs as they happen, across the repositories you configure.
 
-![git-tui in demo mode: the profile header, with its review and ready-to-merge badges, above the Pull requests view, with a PR's picture in the details pane](docs/images/pull-requests.png)
+![git-tui in demo mode: the profile header, with its review and ready-to-merge badges, above the Pull requests view](docs/images/pull-requests.webp)
 
 ## Get started
 
@@ -58,7 +58,7 @@ git-tui tells you when a newer stable release exists, and how to install it by h
 
 - **Which builds are checked.** Go records how a binary was built. A stable version installed with `go install …@v0.5.0` (or `@latest`) is a release, checked against the GitHub Release marked latest about once a day. A build from a clone, even one exactly on a release tag, is a source build. Anything else, such as `go install …@main`, is unknown. Source and unknown builds are never called out of date; `Ctrl+R` in Connections, or `git-tui -check-update`, shows the latest release on demand.
 - **In the app.** When a newer release exists, an **Update v0.5.0** pill joins the badges at the right of the header (`[Update v0.5.0]` in the ASCII and text headers, the tab bar with the header off), so it reads without colour. The `git-tui` row in Connections shows the state (`up to date`, `update available`, `not checked`, `checking`, `check failed` or `not compared`), the version and kind of build, the executable, the latest stable release and how long ago it was checked, then what to do: the `go install` command pinned to the new version for a release; for a source build, how to rebuild it from the clone; for an unknown build, both, since the app cannot tell which applies.
-![Connections with the git-tui row selected: a release one version behind, the latest release and the go install command for it](docs/images/connections.png)
+![Connections with the git-tui row selected: a release one version behind, the latest release and the go install command for it](docs/images/connections.webp)
 
 - **From the command line.** `git-tui -check-update` checks now, whatever the build, prints the same details and exits without starting the interface. It exits 0 when the check worked, whether or not there is a newer release, and 1 when it failed (after printing any earlier result). `-version` never checks.
 - **How it checks.** One `gh api repos/shaungsimpson/git-tui/releases/latest` call (20-second timeout), so it needs `gh` logged in with access to the repository. Only a stable version (`vX.Y.Z`) is accepted. A successful check is cached in `$XDG_CACHE_HOME/git-tui/release.json` (default `~/.cache/git-tui/release.json`) and trusted for 24 hours across launches; a failed check is not cached, keeps the earlier result and its age on screen, and retries like any other load. A missing or unreadable cache only means checking again. Demo mode pretends to run v0.4.1 and finds v0.5.0, without the network or the cache.
@@ -68,7 +68,7 @@ git-tui tells you when a newer stable release exists, and how to install it by h
 - Go 1.26, or Go 1.21 or newer to fetch it: the module declares `go 1.26.0`, and with the default `GOTOOLCHAIN=auto` Go 1.21 and later download 1.26 automatically.
 - `git` on `PATH`.
 - Optional: the GitHub CLI (`gh`), logged in with `gh auth login`, for the Pull requests, Environments and Deploys views. Each repository's `origin` must point at github.com. A repository with no `origin` remote yet, such as one not pushed to GitHub, is not an error: the status line notes `no origin remote yet (not pushed to GitHub)` and its local views work as usual.
-- A terminal at least 60×16. The sidebar appears from 100 columns and the details pane from 120 columns. When the list is narrower than 100 columns, commit, pull request and deploy rows put their title on a second line and everything else on the first, including the author when it fits; a long author follows the title instead of being cut off.
+- A terminal at least 60×16. The sidebar appears from 100 columns, and from 120 a preview pane beside the list shows the selected item's key details and the shortcuts that act on it. It never takes focus: `v` opens the full detail page. When the list is narrower than 100 columns, commit, pull request and deploy rows put their title on a second line and everything else on the first, including the author when it fits; a long author follows the title instead of being cut off.
 
 No Nerd Font or image support is required.
 
@@ -91,7 +91,7 @@ The file is selected in this order:
 2. `$GIT_TUI_CONFIG`
 3. `$XDG_CONFIG_HOME/git-tui/config.json`, which defaults to `~/.config/git-tui/config.json`
 
-`~` is expanded. Each repository is validated on its own: a missing directory or a directory without `.git` is marked unavailable, and the app still opens. If no configuration file exists, the app opens and offers to add repositories, creating the file when you do. You can also write it by hand; start from `examples/config.example.json`.
+`~` is expanded. Each repository is validated on its own: a missing directory or a directory without `.git` is marked unavailable, and the app still opens. If no configuration file exists, the app opens and offers to add repositories, creating the file when you do. You can also write it by hand; start from `examples/config.example.json`. `name` is optional: a repository without one is named after its folder, and when two folders share a name, the later one gets its parent folder in front (`personal/api`). Without a home folder (and no `-config` or `$GIT_TUI_CONFIG`), there is no configuration file, and nothing is remembered or cached.
 
 ## Managing repositories
 
@@ -107,7 +107,7 @@ The Connections view (`g c`) lists each configured repository under "Repository 
 
 Adding looks for git repositories up to 3 folders below the folder you give, skipping hidden folders, `node_modules`, `vendor`, and the inside of a repository it found (so submodules are not listed). It follows links: a linked starting folder is searched, and a project linked into it is listed. A relative folder is taken from where you started git-tui and saved as a full path. It starts in the folder you used last, else the folder your repositories share, else `~/Code`. Repositories already configured are marked `[·]`. A name already in use gets its parent folder in front, such as `client-x/api`; rename it afterwards if you like. `f` looks the same way and puts the cursor on a folder with the repository's old folder name, or its name, and `Enter` points the repository there.
 
-![Adding repositories: folders found under a starting folder, one already configured and marked [·], two chosen with Space](docs/images/add-repositories.png)
+![Adding repositories: folders found under a starting folder, one already configured and marked [·], two chosen with Space](docs/images/add-repositories.webp)
 
 Each change is saved straight away. A repository keeps what it has already loaded when the list is reordered; a renamed one reloads its local Git data, which carries the name, but not its GitHub data.
 
@@ -123,17 +123,17 @@ The time zone (`u`), the profile header style (`b`), each list's sort (`s`) and 
 
 ## Views
 
-![The Overview view: each repository's branch, worktree state, ahead/behind and latest commit](docs/images/overview.png)
+![The Overview view: each repository's branch, worktree state, ahead/behind and latest commit](docs/images/overview.webp)
 
 | View        | Shows                                                                                   |
 |-------------|-----------------------------------------------------------------------------------------|
 | Overview    | Per repository: branch, worktree state, ahead/behind, latest commit                      |
 | Activity    | Recent commits (100 per repository), merged by date, for all repositories or the one selected |
-| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). Details show the description (first 200 lines, with its pictures) and the changed files; `d` shows the PR's code diff |
+| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). Its detail page (`v`) shows the description (first 200 lines, with its pictures) and the changed files; `d` shows the PR's code diff |
 | Repository  | Branch, HEAD, upstream, tracking and worktree for the selected repository, plus its commits |
 | Tags        | Tags; mark one as the base and pick another to list the **commits** between them        |
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
-| Deploys     | Recent deploy workflow runs: status, duration, branch and link. A failed or cancelled run says why it stopped, as GitHub recorded it. While a run is queued or running, the view reloads every 10 seconds by itself |
+| Deploys     | Recent deploy workflow runs: status, duration, branch and link. A failed or cancelled run says why it stopped, as GitHub recorded it. While a run is queued or running, the view reloads by itself, less often the longer the run goes on |
 | Connections | What is available: local Git, the config and each configured repository (managed here, see [Managing repositories](#managing-repositories)), GitHub pull requests, deployments and deploy runs (from what those views last loaded), and git-tui itself: its version and kind of build, where it is installed, the latest release and how to update it (see [Updates](#updates)) |
 
 Lists start newest first. `s` cycles the current list's sort; within each group the rows stay newest first, and the pane title shows any sort other than the default:
@@ -148,13 +148,13 @@ Lists start newest first. `s` cycles the current list's sort; within each group 
 
 Pull requests by status puts what needs you first: your review requests, then your PRs ready to merge, failing checks, changes requested, awaiting review, approved, and drafts last. Deploys by status lists running runs, then failed or cancelled ones, then successes. Overview keeps your order (`K`/`J`) and Tags stay newest first.
 
-In Pull requests, a green **✔** in the column after the check status marks your own PR that is ready to merge: approved, every check passing, and not a draft. Details says "Ready: ✔ approved, checks passing". Merge conflicts are not checked.
+In Pull requests, a green **✔** in the column after the check status marks your own PR that is ready to merge: approved, every check passing, and not a draft. Its detail page says "Ready: ✔ approved, checks passing". Merge conflicts are not checked.
 
-![Tags comparing v1.8.0 with v1.9.0: the commits between them, with the selected commit's details](docs/images/compare.png)
+![Tags comparing v1.8.0 with v1.9.0: the commits between them, ](docs/images/compare.webp)
 
-![Deploys across all repositories: a running deploy at the top, with successes and failures below](docs/images/deploys.png)
+![Deploys across all repositories: a running deploy at the top, with successes and failures below](docs/images/deploys.webp)
 
-In Pull requests, a **★** in the column after the check status means someone has asked for your review, either you directly or a team you belong to. Details repeats it as "Requested: ★ your review". The star comes from GitHub's `review-requested:@me` search, so it disappears once you submit a review, and comes back if you are asked again. It sits apart from the review column, which shows the PR's overall state (approved, changes, review, draft). If the search fails, the list still loads without stars until the next refresh.
+In Pull requests, a **★** in the column after the check status means someone has asked for your review, either you directly or a team you belong to. Its detail page repeats it as "Requested: ★ your review". The star comes from GitHub's `review-requested:@me` search, so it disappears once you submit a review, and comes back if you are asked again. It sits apart from the review column, which shows the PR's overall state (approved, changes, review, draft). If the search fails, the list still loads without stars until the next refresh.
 
 Authors are coloured so you can follow a person down a list: the same name always gets the same colour, ignoring case and punctuation (`Jane Doe` and `jane.doe` match). Your own name, as your GitHub login, display name or git name, is in the accent colour (a PR author must match your login exactly), and bots such as `renovate[bot]` and GitHub Apps (`app/dependabot`) are grey. A GitHub login and a git name for someone else can still get different colours, since nothing links them.
 
@@ -180,9 +180,9 @@ Press `b` to cycle it (the choice is remembered), or start with `-profile`:
 | `text`  | One line of counts, zeros left out |
 | `off`   | Nothing |
 
-![The profile header in ASCII mode, its badges drawn as [! 3], [ok 2] and [Update v0.5.0]](docs/images/header-ascii.png)
+![The profile header in ASCII mode, its badges drawn as [! 3], [ok 2] and [Update v0.5.0]](docs/images/header-ascii.webp)
 
-![The profile header in text mode: one line of counts, with the same badges](docs/images/header-text.png)
+![The profile header in text mode: one line of counts, with the same badges](docs/images/header-text.webp)
 
 The header degrades to what the terminal can show:
 
@@ -197,8 +197,9 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 |-------------------|----------------------------------------------------------------------------|
 | `j` `k` / `↓` `↑` | Move the selection in the focused pane                                     |
 | `Tab` / `Shift+Tab` | Move focus between visible panes                                         |
-| `Enter`           | Open or inspect the selected item (in Tags: choose the base tag, then the head tag; in Environments: list commits not yet deployed) |
-| `Esc`             | Close details, the comparison, the base selection or the filter            |
+| `v`               | View the selected item's details on a page of their own, across the whole window: a PR's description, pictures and files, a commit's message, why a deploy run stopped. On the page `j`/`k` scroll, `PgUp`/`PgDn` or `Space` page, `J`/`K` step to the next or previous item, and `o` and `d` still apply |
+| `Enter`           | From the sidebar, move to the list. In Overview: open the Repository view. In Tags: choose the base tag, then the head tag. In Environments: list commits not yet deployed |
+| `Esc`             | Close the detail page, the comparison, the base selection or the filter    |
 | `/`               | Filter the current list (`Enter` applies, `Esc` cancels). In Pull requests, `is:review` keeps your review requests and `is:ready` your PRs ready to merge |
 | `s`               | Sort the current list: Activity, Pull requests, Repository, Environments and Deploys (see [Views](#views)). Remembered between runs |
 | `n`               | Go to Pull requests across all repositories, filtered to your review requests (`is:review`); again for your PRs ready to merge (`is:ready`); again to show every PR |
@@ -214,29 +215,33 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `a` `r` `x` `K` `J` `f` | In Connections: add, rename, remove, reorder or find repositories. See [Managing repositories](#managing-repositories) |
 | `Ctrl+C`          | Quit                                                                       |
 
-![The diff of a pull request, opened with d](docs/images/diff.png)
+![The diff of a pull request, opened with d](docs/images/diff.webp)
 
-The light theme (`F2`), and an 80×24 window, where the sidebar and details pane give way to the list:
+A pull request's detail page, opened with `v`:
 
-![The Pull requests view in the light theme](docs/images/light.png)
+![A pull request's detail page: its description with a picture, and the changed files](docs/images/detail.webp)
 
-![The Pull requests view in an 80×24 window, titles on a second line](docs/images/narrow.png)
+The light theme (`F2`), and an 80×24 window, where the sidebar and preview pane give way to the list:
+
+![The Pull requests view in the light theme](docs/images/light.webp)
+
+![The Pull requests view in an 80×24 window, titles on a second line](docs/images/narrow.webp)
 
 While the filter, rename or folder input is open, all typing and pasted text go to the input, not to shortcuts.
 
 ## Scope and behaviour
 
-- Git is run with argument arrays in each repository's directory, with a 5-second timeout. `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0` are set, so it never prompts and never refreshes the index, and `core.fsmonitor` is turned off. Repositories in the config are trusted: git may still run programs their own config names, such as clean filters (Git LFS is one), as it does in your shell.
-- Only `status`, `log`, `for-each-ref`, `diff`, `ls-files` and `remote get-url` are run (adding repositories reads each found repository's `origin` with `remote get-url` to name it); `diff` uses `--no-ext-diff --no-textconv`, so a repository's own diff programs never run. There is no fetch, pull, checkout or tagging.
+- Git is run with argument arrays in each repository's directory, with a 5-second timeout. A program git started that outlives the timeout gets 1 more second before the call gives up on it. `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0` are set, so it never prompts and never refreshes the index, and `core.fsmonitor` is turned off. Repositories in the config are trusted: git may still run programs their own config names, such as clean filters (Git LFS is one), as it does in your shell.
+- Only `status`, `log`, `for-each-ref`, `diff`, `ls-files`, `remote get-url` and `config user.name` / `config user.email` (your git identity in the profile header) are run (adding repositories reads each found repository's `origin` with `remote get-url` to name it); `diff` uses `--no-ext-diff --no-textconv`, so a repository's own diff programs never run. There is no fetch, pull, checkout or tagging.
 - GitHub calls go only to a remote whose host is github.com itself (or, over SSH, a host alias such as `github.com-work`).
-- Pull requests are read with `gh pr list`, deployments with `gh api graphql`, deploy runs with `gh run list`, and why a selected run failed or was cancelled with `gh api graphql` (its jobs' failure annotations, read once per run) (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
+- Pull requests are read with `gh pr list`, deployments with `gh api graphql`, deploy runs with `gh run list`, why a selected run failed or was cancelled with `gh api graphql` (its jobs' failure annotations, read once per run, when its detail page is open), and a pull request's diff with `gh pr diff` (20-second timeout; up to 100 open PRs, 50 environments, the newest 20 deployments per environment and the newest 100 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.
 - Data on screen refreshes by itself when it is stale: local Git data after 5 seconds, GitHub data (pull requests, environments, deploys) after 1 minute, and your GitHub profile after 30 minutes. Staleness is checked on every key press, when you come back to the window, when it is resized, and on a 1-minute idle tick while the window is focused. The tick pauses while the window is in the background and after 10 minutes without a key press, so an open but unused window makes no `gh` calls. Every repository's pull requests and your GitHub profile always count as on screen, since the review and ready-to-merge badges show in every header mode. With the profile header shown, every repository's commits and status do too, since the header counts them; with it off, the rest refreshes only for the current view. The right of the tab bar says how old the data is (`Updated 3m ago`), or `Updating…` while a refresh runs; when the tabs need the room it shortens to `3m ago` (or `Just now`), then gives way.
-- Deploys also reloads every 10 seconds while a deploy is queued or running. It stops when nothing is running, when you leave the view, or when a reload fails. Nothing is written to GitHub.
-- Pictures in PR descriptions are drawn in the terminal in Ghostty and kitty (Kitty graphics protocol with Unicode placeholders), not inside tmux; other terminals, including WezTerm for now, show the picture's name instead. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded, up to 10 MB each. Your `gh` login token is sent to github.com only, because attachments in private repositories need it; it is not sent on to GitHub's storage host. Anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures; it draws generated ones.
+- Deploys also reloads by itself while a deploy is queued or running: every minute for its first 30 minutes, then every 5 minutes, and every 15 minutes once it has gone on for 2 hours (a run waiting for an approval or a free runner can wait for days). The newest unfinished run sets the pace, and runs the idle refresh has just reloaded are skipped. It stops when nothing is running, when you leave the view, when a reload fails, or while the window is in the background and unused for 10 minutes; the next key, or returning to the window, starts it again. Nothing is written to GitHub.
+- Pictures in PR descriptions are drawn in the terminal in Ghostty and kitty (Kitty graphics protocol with Unicode placeholders), not inside tmux; other terminals, including WezTerm for now, show the picture's name instead. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded (on github.com, only from its attachments folder), up to 10 MB and 16 megapixels each, two at a time, once the PR's detail page is open. Your `gh` login token is sent to github.com only, because attachments in private repositories need it; it is not sent on to GitHub's storage host. Anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures; it draws generated ones.
 - A failed load keeps the last good data on screen and retries by itself after 1, 2, 4 and 8 minutes, then every 10 minutes; Ctrl+R retries at once, pictures and your avatar included, and the status line shows a `ctrl+r retry` hint.
 - `t`, `T` and `Ctrl+T` run `osascript` with Ghostty's own AppleScript commands to open a tab in the front window, or split the focused pane (1-minute timeout, so there is time to answer the macOS permission prompt). A relative repository path is made absolute first. The repository path is passed as an argument, not written into the script. The first time, macOS may ask to let Ghostty control Ghostty; if you refuse, the key shows the error. Demo mode only says which directory it would open.
-- Besides your repositories' pull requests, deployments and runs, the app reads your GitHub profile (`gh api user`), downloads PR pictures and your avatar from GitHub's hosts, and checks for a newer git-tui release (see [Updates](#updates)). Nothing else goes over the network.
+- Besides your repositories' pull requests, deployments and runs, the app reads your GitHub profile (`gh api user`), downloads PR pictures and your avatar from GitHub's hosts (pictures on github.com itself with the login token from `gh auth token`, 5-second timeout), and checks for a newer git-tui release (see [Updates](#updates)). Nothing else goes over the network.
 - Loads run asynchronously. A refresh keeps the existing content visible, and results from superseded requests are discarded.
 - Paths in your home folder (repositories, the configuration file, the executable, `git` and `gh`) are shown from `~`, so a screenshot does not give away your account name.
 - Text from Git (subjects, branch names, errors) has its control characters, escape sequences and text direction overrides removed before display.

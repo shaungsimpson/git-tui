@@ -47,7 +47,11 @@ func TestManageRepositories(t *testing.T) {
 	}
 	press(m, "r")
 	m.input.SetValue("alpha")
-	press(m, "enter", "J")
+	press(m, "enter", "v", "J", "K", "esc")
+	if got := savedNames(t, path); got != "alpha,b,group/a" {
+		t.Fatalf("J/K on the detail page step through rows and never move a repository: got %s", got)
+	}
+	press(m, "J")
 	if got := savedNames(t, path); got != "b,alpha,group/a" {
 		t.Fatalf("rename then J: got %s", got)
 	}

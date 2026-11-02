@@ -47,7 +47,6 @@ const (
 const (
 	logDepth   = 100
 	seqTimeout = time.Second
-	pollEvery  = 10 * time.Second
 )
 
 type seqExpiredMsg struct{ gen int }
@@ -91,7 +90,7 @@ type Model struct {
 	cursor  [viewCount]int
 	sorts   [viewCount]int // each view's position in sortsOf
 	offset  [viewCount]int
-	inspect bool // detail shown in place of the list on narrow layouts
+	inspect bool // the detail page: the selected row's details fill the body
 	detOff  int
 	cmp     compareState
 	diff    diffState
@@ -125,8 +124,9 @@ type Model struct {
 	seqGen   int
 	flash    string
 
-	polling bool // a Deploys reload tick is scheduled
-	pollGen int  // bumped on view change so an old tick is ignored
+	polling  bool          // a Deploys reload tick is scheduled
+	pollWait time.Duration // how far apart those ticks are now
+	pollGen  int           // bumped on view change so an old tick is ignored
 
 	focused bool      // the terminal window has focus; assumed until it reports otherwise
 	ticking bool      // the idle refresh tick is scheduled
@@ -174,9 +174,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(max(10, msg.Width-32)) // leave room for the apply/cancel hint
-		if m.focus == paneDetail && m.layout().detailW == 0 {
-			m.inspect = true // the details pane is gone; show details in place of the list
-		}
 		m.clampAll()
 		// Pictures are encoded for the pane width; a taller window can reveal the profile header and its data.
 		return m, tea.Batch(m.ensurePics(), m.ensure(false))
@@ -239,12 +236,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pollMsg:
 		if msg.gen == m.pollGen {
 			m.polling = false
-			// Reload only repositories with a run still going; their results schedule the next tick.
+			if !m.focused && !m.inUse() {
+				return m, nil // a key or returning to the window reloads stale runs, and their result polls again
+			}
+			// Reload only repositories with a run still going and not reloaded since the last tick, say by the
+			// idle refresh; their results schedule the next tick.
 			var cmds []tea.Cmd
 			for _, i := range m.ghScope() {
-				if slices.ContainsFunc(m.repos[i].gh.runs.val, gitx.Run.Active) {
+				runs := &m.repos[i].gh.runs
+				if slices.ContainsFunc(runs.val, gitx.Run.Active) && due(runs, m.pollWait/2) {
 					cmds = append(cmds, m.load(i, kindRuns, true))
 				}
+			}
+			if len(cmds) == 0 {
+				return m, m.schedulePoll()
 			}
 			return m, tea.Batch(cmds...)
 		}
@@ -374,10 +379,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// canSort offers s on the lists that sort, but not on an open commit list or diff, which keep their own order.
+// canSort offers s on the lists that sort, but not on an open commit list or diff (their own order) or the detail page.
 func (m *Model) canSort() bool {
 	_, ok := sortsOf[m.view]
-	return ok && !m.cmpOpen() && !m.diff.open
+	return ok && !m.cmpOpen() && !m.diff.open && !m.inspect
 }
 
 // cycleSort moves the view to its next sort, keeps the selected row selected and remembers the choice.
@@ -403,7 +408,7 @@ func (m *Model) follow(key string) {
 	keys := m.rowKeys(m.view)
 	if i := slices.Index(keys, key); i >= 0 {
 		m.cursor[m.view] = i
-		m.keepVisible(m.view, &m.cursor[m.view], &m.offset[m.view], len(keys))
+		keepVisible(&m.cursor[m.view], &m.offset[m.view], len(keys), m.listHeight(m.view))
 	}
 }
 
@@ -432,6 +437,28 @@ func (m *Model) do(id actionID) tea.Cmd {
 		m.cycleFocus(-1)
 	case actOpen:
 		return m.open()
+	case actView:
+		m.inspect, m.focus, m.detOff = true, paneDetail, 0
+		return tea.Batch(m.ensurePics(), m.ensure(false)) // a stopped run's reasons load once the page shows them
+	case actPageDown, actPageUp:
+		page := max(1, m.layout().bodyH-2)
+		if id == actPageUp {
+			page = -page
+		}
+		m.detOff = min(max(0, m.detOff+page), m.maxDetailOff())
+	case actNextItem, actPrevItem:
+		n, cur, off := m.list()
+		if n == 0 { // a refresh can empty the list behind the page
+			return nil
+		}
+		d := 1
+		if id == actPrevItem {
+			d = -1
+		}
+		*cur = min(max(*cur+d, 0), n-1)
+		keepVisible(cur, off, n, m.listHeight(m.view))
+		m.detOff = 0
+		return m.ensure(false)
 	case actBack:
 		m.back()
 	case actFilter:
@@ -575,23 +602,49 @@ func (m *Model) setView(v viewID) tea.Cmd {
 	return m.ensure(false)
 }
 
-// schedulePoll reloads Deploys every pollEvery while a run in view is still going.
-// It stops when none is, when the view changes, or when a reload fails.
+// schedulePoll reloads Deploys while a run in view is still going, less often the longer it has gone on.
+// It stops when none is, when the view changes, when a reload fails, or while the window is in the background
+// and unused; the next key, or returning to the window, starts it again.
 func (m *Model) schedulePoll() tea.Cmd {
-	if m.polling || m.view != viewRuns || !slices.ContainsFunc(m.runList(), gitx.Run.Active) {
+	if m.polling || m.view != viewRuns || !m.focused && !m.inUse() {
 		return nil
 	}
-	m.polling = true
+	newest, active := time.Time{}, false
+	for _, r := range m.runList() {
+		if r.Active() {
+			active = true
+			started := r.Started
+			if started.IsZero() {
+				started = clock() // not started yet, so as young as a run can be
+			}
+			if started.After(newest) {
+				newest = started
+			}
+		}
+	}
+	if !active {
+		return nil
+	}
+	m.polling, m.pollWait = true, pollWait(clock().Sub(newest))
 	gen := m.pollGen
-	return tea.Tick(pollEvery, func(time.Time) tea.Msg { return pollMsg{gen} })
+	return tea.Tick(m.pollWait, func(time.Time) tea.Msg { return pollMsg{gen} })
+}
+
+// pollWait is how often Deploys reloads while its newest unfinished run has been going this long. Most deploys
+// finish within half an hour; one waiting for an approval or a free runner can wait for days.
+func pollWait(running time.Duration) time.Duration {
+	switch {
+	case running < 30*time.Minute:
+		return time.Minute
+	case running < 2*time.Hour:
+		return 5 * time.Minute
+	}
+	return 15 * time.Minute
 }
 
 func (m *Model) panes() []paneID {
-	if m.layout().detailW > 0 {
-		return []paneID{paneSidebar, paneMain, paneDetail}
-	}
 	if m.inspect {
-		return []paneID{paneSidebar, paneDetail}
+		return []paneID{paneDetail}
 	}
 	return []paneID{paneSidebar, paneMain}
 }
@@ -601,9 +654,6 @@ func (m *Model) cycleFocus(dir int) {
 	ps := m.panes()
 	i := max(0, slices.Index(ps, m.focus))
 	m.focus = ps[(i+dir+len(ps))%len(ps)]
-	if m.focus == paneMain {
-		m.inspect = false
-	}
 }
 
 // move handles j/k in whichever pane has focus.
@@ -624,7 +674,7 @@ func (m *Model) move(d int) tea.Cmd {
 			return nil
 		}
 		*cur = min(max(*cur+d, 0), n-1)
-		m.keepVisible(m.view, cur, off, n)
+		keepVisible(cur, off, n, m.listHeight(m.view))
 		m.detOff = 0
 	}
 	return nil
@@ -632,25 +682,25 @@ func (m *Model) move(d int) tea.Cmd {
 
 func (m *Model) selectRepo(i int) {
 	m.repo = i
-	m.cancelCompare()
-	m.cmp = compareState{res: slot[[]gitx.Commit]{gen: m.cmp.res.gen + 1}}
+	m.resetCompare(viewOverview) // no view owns it
 	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags, viewEnvs, viewRuns} {
 		m.cursor[v], m.offset[v] = 0, 0
 	}
 	m.detOff = 0
 }
 
-func (m *Model) keepVisible(v viewID, cur, off *int, n int) {
-	h := m.listHeight(v)
+// keepVisible scrolls a list of n rows, h of them on screen, so the cursor shows.
+func keepVisible(cur, off *int, n, h int) {
 	*off = min(max(*off, *cur-h+1), *cur)
 	*off = max(0, min(*off, max(0, n-h)))
 }
 
 func (m *Model) clampAll() {
+	bodyH := m.layout().bodyH
 	for v := range viewCount {
 		n, cur, off := m.listFor(v)
 		*cur = min(*cur, max(0, n-1))
-		m.keepVisible(v, cur, off, n)
+		keepVisible(cur, off, n, m.rowsIn(v, bodyH))
 	}
 }
 
@@ -673,31 +723,36 @@ func (m *Model) open() tea.Cmd {
 	case m.view == viewEnvs && !m.cmpOpen():
 		return m.openPending(m.envList()[*cur])
 	}
-	m.detOff = 0
-	if m.layout().detailW > 0 {
-		m.focus = paneDetail
-	} else {
-		m.inspect, m.focus = true, paneDetail
-	}
 	return nil
 }
 
+// canOpen offers enter where it has a job: leaving the sidebar, or a row in Overview, Tags or Environments.
+// Elsewhere v opens the detail page.
 func (m *Model) canOpen() bool {
 	if m.focus == paneSidebar {
 		return true
 	}
-	n, _, _ := m.list()
-	return m.focus == paneMain && n > 0
+	return m.canView() && (m.view == viewOverview || (m.view == viewTags || m.view == viewEnvs) && !m.cmpOpen())
 }
+
+// canView offers v on a list with rows.
+func (m *Model) canView() bool {
+	n, _, _ := m.list()
+	return m.focus == paneMain && !m.inspect && n > 0
+}
+
+func (m *Model) paging() bool { return m.inspect }
+
+func (m *Model) notPaging() bool { return !m.inspect }
 
 func (m *Model) canBack() bool {
 	baseSet := m.view == viewTags && m.cmp.view == viewTags && m.cmp.base != ""
-	return m.inspect || m.focus == paneDetail || m.cmpOpen() || baseSet || m.filters[m.view] != ""
+	return m.inspect || m.cmpOpen() || baseSet || m.filters[m.view] != ""
 }
 
 func (m *Model) back() {
 	switch {
-	case m.inspect || m.focus == paneDetail:
+	case m.inspect:
 		m.inspect, m.focus = false, paneMain
 	case m.cmpOpen():
 		m.cancelCompare()
@@ -718,7 +773,7 @@ func (m *Model) filterable() bool {
 	case viewConnections:
 		return false
 	}
-	return !m.cmpOpen()
+	return !m.cmpOpen() && !m.inspect // the list sits behind the detail page
 }
 
 func (m *Model) setFilter(f string) {

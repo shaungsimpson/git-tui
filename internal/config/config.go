@@ -64,6 +64,9 @@ func Resolve(flag string) string {
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
 		home, _ := os.UserHomeDir()
+		if home == "" {
+			return "" // Load refuses it, so nothing is ever saved into the current folder
+		}
 		dir = filepath.Join(home, ".config")
 	}
 	return filepath.Join(dir, "git-tui", "config.json")
@@ -71,6 +74,9 @@ func Resolve(flag string) string {
 
 // Load reads and validates the file. Per-repository problems are recorded on each Repo, not returned.
 func Load(path string) (Config, error) {
+	if path == "" {
+		return Config{}, errors.New("no configuration file: set HOME or GIT_TUI_CONFIG, or pass -config")
+	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Config{}, ErrNotFound
@@ -82,8 +88,18 @@ func Load(path string) (Config, error) {
 	if err != nil { // nothing half-read reaches the app: its repositories were never validated
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
+	taken := map[string]bool{}
+	for _, r := range cfg.Repositories {
+		taken[r.Name] = r.Name != ""
+	}
 	for i := range cfg.Repositories {
-		validate(&cfg.Repositories[i])
+		r := &cfg.Repositories[i]
+		named := r.Name != ""
+		validate(r)
+		if !named && taken[r.Name] { // two folders called api: as when adding, the second gets its parent folder
+			r.Name = filepath.Base(filepath.Dir(r.Path)) + "/" + r.Name
+		}
+		taken[r.Name] = true
 	}
 	return cfg, nil
 }
@@ -101,8 +117,8 @@ func decode(data []byte) (Config, error) {
 	return cfg, nil
 }
 
-// Save writes the repository list, keeping the previous file as path.bak. The new file is read back the way
-// Load reads it before anything is replaced, so a save can never leave a configuration Load rejects.
+// Save writes the repository list, keeping the previous file as path.bak. Each file is written beside the old
+// one, flushed to disk and read back before it replaces anything (writeFile).
 func Save(path string, c Config) error {
 	if real, err := filepath.EvalSymlinks(path); err == nil {
 		path = real // write through a link, such as one into a dotfiles repository, rather than replace it
@@ -141,9 +157,6 @@ func Save(path string, c Config) error {
 		return err
 	}
 	data = append(data, '\n')
-	if _, err := decode(data); err != nil {
-		return fmt.Errorf("the new configuration would not load: %w", err)
-	}
 	old, err := os.ReadFile(path)
 	switch {
 	case err == nil:

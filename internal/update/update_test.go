@@ -136,3 +136,12 @@ func TestCheckCachesOnlySuccess(t *testing.T) {
 		t.Fatal("a missing cache is no result")
 	}
 }
+
+func TestCachePathWithoutHome(t *testing.T) {
+	for _, k := range []string{"HOME", "USERPROFILE", "home", "XDG_CACHE_HOME"} {
+		t.Setenv(k, "")
+	}
+	if p := CachePath(); p != "" {
+		t.Fatalf("CachePath = %q, want none: never a cache in the current folder", p)
+	}
+}

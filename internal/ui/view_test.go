@@ -108,6 +108,9 @@ func TestRenderFitsTerminal(t *testing.T) {
 		for _, g := range goKeys {
 			press(m, "g", g.key)
 			check(viewNames[g.view])
+			press(m, "v")
+			check(viewNames[g.view] + " detail page")
+			press(m, "esc")
 		}
 		press(m, "tab", "j", "j", "g", "r")
 		check("repository")
@@ -165,7 +168,7 @@ func TestClean(t *testing.T) {
 }
 
 func TestStackedRows(t *testing.T) {
-	m := setup(t, demoOpts(), 140, 16) // details on, so the list is under stackedBelow
+	m := setup(t, demoOpts(), 99, 16) // the list is under stackedBelow
 	m.view, m.focus = viewPRs, paneMain
 	for i := range m.repos {
 		drain(m, m.load(i, kindPRs, false))
@@ -203,10 +206,11 @@ func TestVersionShown(t *testing.T) {
 	m := setup(t, o, 120, 30)
 	press(m, "g", "c")
 	m.cursor[viewConnections] = len(m.connections()) - 1 // the git-tui row's details
+	press(m, "v")
 	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui") || !strings.Contains(out, "v9.9.9") {
 		t.Fatalf("Connections should list the version:\n%s", out)
 	}
-	press(m, "?")
+	press(m, "esc", "?")
 	if out := ansi.Strip(m.render()); !strings.Contains(out, "git-tui v9.9.9") {
 		t.Fatal("help should show the version")
 	}
@@ -338,4 +342,35 @@ func TestFooterWrapsAndKeepsBasics(t *testing.T) {
 	if m.footerRows() != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "ctrl+r refresh") || !strings.Contains(f, "…") {
 		t.Fatalf("a one-line footer should drop other shortcuts before help and refresh:\n%s", f)
 	}
+}
+
+// BenchmarkManyRepos measures a frame, and a load result with its frame, for 30 repositories of 100 commits each.
+// Work done per row, such as rebuilding every list to size the footer, shows up here first.
+func BenchmarkManyRepos(b *testing.B) {
+	o := Options{Source: gitx.Demo{}, Demo: true}
+	for i := range 30 {
+		name := "r" + strconv.Itoa(i)
+		o.Repos = append(o.Repos, config.Repo{Name: name, Path: "/demo/" + name, Status: config.StatusOK})
+	}
+	m := New(o)
+	m.width, m.height, m.view = 160, 50, viewActivity
+	now := time.Now()
+	for i, r := range m.repos {
+		var cs []gitx.Commit
+		for j := range logDepth {
+			cs = append(cs, gitx.Commit{Repo: r.cfg.Name, Hash: strconv.Itoa(i*1000 + j), Subject: "subject", Author: "me", When: now.Add(-time.Duration(j) * time.Hour)})
+		}
+		r.log = slot[[]gitx.Commit]{val: cs, loaded: true, at: now}
+	}
+	b.Run("frame", func(b *testing.B) {
+		for b.Loop() {
+			_ = m.render()
+		}
+	})
+	b.Run("result", func(b *testing.B) {
+		for b.Loop() {
+			m.Update(resultMsg{kind: kindSummary, gen: -1}) // a superseded result: only the bookkeeping and clamping run
+			_ = m.render()
+		}
+	})
 }

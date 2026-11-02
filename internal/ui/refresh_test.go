@@ -138,6 +138,7 @@ func TestHiddenHeaderLoadsOnlyTheView(t *testing.T) {
 }
 
 func TestDeployRunsPolling(t *testing.T) {
+	now := fakeClock(t)
 	m := setup(t, demoOpts(), 140, 40)
 	press(m, "g", "d")
 	if m.view != viewRuns || len(m.runList()) == 0 {
@@ -151,6 +152,11 @@ func TestDeployRunsPolling(t *testing.T) {
 	}
 
 	gen := m.pollGen
+	if _, cmd := m.Update(pollMsg{gen}); cmd == nil || !m.polling || m.repos[0].gh.runs.loading {
+		t.Fatal("a tick while the runs are still fresh, say from the idle refresh, should only wait again")
+	}
+	m.polling = false
+	*now = now.Add(m.pollWait)
 	if _, cmd := m.Update(pollMsg{gen}); cmd == nil || m.polling {
 		t.Fatal("a current tick should reload runs and wait for the results to reschedule")
 	}
@@ -176,6 +182,48 @@ func TestDeployRunsPolling(t *testing.T) {
 	press(m, "shift+tab", "k") // backend, whose running deploy is already loaded: nothing reloads
 	if m.repo != 1 || !m.polling {
 		t.Fatalf("repo %d polling %v: selecting a repository with a running deploy should start watching", m.repo, m.polling)
+	}
+
+	// In the background and unused, the next tick stops polling; the next key starts it again.
+	m.Update(tea.BlurMsg{})
+	*now = now.Add(idleAfter)
+	if _, cmd := m.Update(pollMsg{m.pollGen}); cmd != nil || m.polling {
+		t.Fatal("a window in the background and unused should stop polling")
+	}
+	press(m, "k")
+	if !m.polling {
+		t.Fatal("a key should start polling again")
+	}
+}
+
+func TestPollWaitBacksOff(t *testing.T) {
+	for _, c := range []struct{ running, want time.Duration }{
+		{0, time.Minute}, {29 * time.Minute, time.Minute},
+		{30 * time.Minute, 5 * time.Minute}, {2*time.Hour - time.Second, 5 * time.Minute},
+		{2 * time.Hour, 15 * time.Minute}, {72 * time.Hour, 15 * time.Minute},
+	} {
+		if got := pollWait(c.running); got != c.want {
+			t.Errorf("running %s: poll every %s, want %s", c.running, got, c.want)
+		}
+	}
+
+	// The newest unfinished run sets the pace, so an old stuck run does not slow down watching a new one.
+	now := fakeClock(t)
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "d")
+	runs := &m.repos[0].gh.runs
+	runs.val = []gitx.Run{
+		{ID: 1, Status: "waiting", Started: now.Add(-3 * 24 * time.Hour)},
+		{ID: 2, Status: "in_progress", Started: now.Add(-5 * time.Minute)},
+	}
+	m.polling = false
+	if m.schedulePoll(); m.pollWait != time.Minute {
+		t.Fatalf("a run started 5 minutes ago should poll every minute, got %s", m.pollWait)
+	}
+	runs.val = runs.val[:1]
+	m.polling = false
+	if m.schedulePoll(); m.pollWait != 15*time.Minute {
+		t.Fatalf("only a run waiting for days should poll every 15 minutes, got %s", m.pollWait)
 	}
 }
 
@@ -220,6 +268,7 @@ func TestRunReasonRetriesOnCtrlR(t *testing.T) {
 	m.cursor[viewRuns] = slices.IndexFunc(m.runList(), gitx.Run.Stopped)
 	r, _ := m.selectedRun()
 	m.why[r.ID] = &slot[[]string]{err: errors.New("timed out"), tried: clock(), fails: 1}
+	press(m, "v") // reasons show, and load, on the detail page
 	if m.loadWhy(false) != nil {
 		t.Fatal("a failed reason read should wait for its backoff")
 	}
