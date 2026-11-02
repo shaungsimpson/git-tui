@@ -115,7 +115,7 @@ You can configure two folders cloned from the same GitHub repository, such as a 
 
 ## Remembered preferences
 
-The time zone (`u`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the date format (`w`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
@@ -212,6 +212,7 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `o`               | In Pull requests and Deploys: open the selected PR or run in your browser (https links only), with `open` on macOS, `wslview` on WSL when it is installed, and `xdg-open` otherwise |
 | `t` / `T` / `Ctrl+T` | Open a new terminal tab, a split to the right, or a split below, at the selected repository's root (Overview row, sidebar or Repository view). Ghostty 1.4 or later on macOS, or Windows Terminal on WSL, outside tmux; elsewhere the keys are hidden |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
+| `w`               | Cycle how list rows show dates: numeric (`2026-03-02 06:00`, without the year on narrow lists), relative (`3h ago`, the date once it is a week old), short (`2 Mar 06:00`) or weekday (`Mon 2 Mar 06:00`). Dates from an earlier year show the year instead of the time. Detail pages always show the exact time and how long ago. Remembered between runs |
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
 | `a` `r` `x` `K` `J` `f` | In Connections: add, rename, remove, reorder or find repositories. See [Managing repositories](#managing-repositories) |
 | `Ctrl+C`          | Quit                                                                       |

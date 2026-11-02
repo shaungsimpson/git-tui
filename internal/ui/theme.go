@@ -15,6 +15,7 @@ type styles struct {
 	text, muted, accent, title, titleFocus lipgloss.Style
 	selected, marker, sep, ok, warn, bad   lipgloss.Style
 	badge, tab, tabActive, key             lipgloss.Style
+	date, id                               lipgloss.Style   // row data by kind: when, and commit or PR numbers
 	alert, alertDim, readyBadge            lipgloss.Style   // the header's review and ready-to-merge pills
 	updateBadge                            lipgloss.Style   // the header's pill for a newer release
 	authors                                []lipgloss.Style // one per person, picked by authorStyle
@@ -33,6 +34,8 @@ func newStyles(dark bool) styles {
 		ok     = c("#2f7d32", "#7cc47f")
 		warn   = c("#8a5d00", "#e0b45c")
 		bad    = c("#b3261e", "#e27d7d")
+		date   = c("#56627e", "#8e9bbd") // blue-grey, calmer than titles yet apart from the plain grey
+		id     = c("#7d6a32", "#c4b37f") // sand, a softer hue than the amber warning
 	)
 	s := lipgloss.NewStyle
 	return styles{
@@ -57,6 +60,8 @@ func newStyles(dark bool) styles {
 		tab:         s().Foreground(muted),
 		tabActive:   s().Foreground(accent).Bold(true).Underline(true),
 		key:         s().Foreground(accent),
+		date:        s().Foreground(date),
+		id:          s().Foreground(id),
 		// Hues apart from the status colours (red, green, amber) and the accent, each readable on its theme.
 		authors: []lipgloss.Style{
 			s().Foreground(c("#3b62c4", "#7aa2f7")), // blue

@@ -14,6 +14,7 @@ import (
 type State struct {
 	UTC       bool              `json:"utc"`
 	NoPreview bool              `json:"noPreview,omitempty"` // the list takes the preview pane's width
+	Dates     string            `json:"dates,omitempty"`     // how list rows show dates
 	Profile   string            `json:"profile,omitempty"`
 	ScanRoot  string            `json:"scanRoot,omitempty"` // where adding repositories last looked
 	Sorts     map[string]string `json:"sorts,omitempty"`    // each list's sort, by view

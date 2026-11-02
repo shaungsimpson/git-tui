@@ -65,6 +65,7 @@ type Options struct {
 	Profile      Profile
 	UTC          bool          // show times in UTC
 	NoPreview    bool          // hide the preview pane beside the list
+	Dates        string        // how list rows show dates, one of dateFormats
 	StatePath    string        // where toggles are remembered; empty in demo mode and tests
 	Version      string        // as -version prints it
 	Executable   string        // the running binary
@@ -85,6 +86,7 @@ type Model struct {
 	dark, themeSet bool
 	utc            bool // show times in UTC instead of the local zone
 	noPreview      bool // the list takes the preview pane's width
+	dates          int  // index into dateFormats
 
 	view    viewID
 	focus   paneID
@@ -143,6 +145,7 @@ func New(o Options) *Model {
 	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, noPreview: o.NoPreview, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
 	m.gh = map[string]*ghState{}
 	m.why = map[int64]*slot[[]string]{}
+	m.dates = max(0, slices.Index(dateFormats, o.Dates)) // an unknown saved name keeps the default
 	for v, k := range sortKeys {
 		if i := slices.Index(sortsOf[v], o.Sorts[k]); i >= 0 { // an unknown saved name keeps the default
 			m.sorts[v] = i
@@ -540,6 +543,10 @@ func (m *Model) do(id actionID) tea.Cmd {
 		m.utc = !m.utc
 		m.flash = "Times now shown in " + m.zone() + "."
 		m.savePrefs(func(s *config.State) { s.UTC = m.utc })
+	case actDates:
+		m.dates = (m.dates + 1) % len(dateFormats)
+		m.flash = "Dates shown as " + dateFormats[m.dates] + "."
+		m.savePrefs(func(s *config.State) { s.Dates = dateFormats[m.dates] })
 	case actDiff:
 		src := m.opts.Source
 		if p, ok := m.selectedPR(); ok {

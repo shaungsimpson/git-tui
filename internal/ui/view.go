@@ -171,19 +171,69 @@ func (m *Model) join(cols []string, h int) string {
 }
 
 // when formats a time in the zone the user chose with u: local by default, or UTC.
+// when is a date on a detail page: exact, and how long ago.
 func (m *Model) when(t time.Time) string {
-	if m.utc {
-		return t.UTC().Format(dateFmt)
-	}
-	return t.Local().Format(dateFmt)
+	return m.zoned(t).Format(dateFmt) + " (" + age(m.now().Sub(t)) + ")"
 }
 
-// stamp is when for list rows: the full date on wide panes, month-day and time on narrower ones.
-func (m *Model) stamp(t time.Time, w int) string {
-	if w >= 70 {
-		return m.when(t)
+// zoned is t in the zone times are shown in.
+func (m *Model) zoned(t time.Time) time.Time {
+	if m.utc {
+		return t.UTC()
 	}
-	return m.when(t)[len("2006-"):]
+	return t.Local()
+}
+
+// now is the current time, or the moment the fixtures describe in demo mode, so their ages read as recent.
+func (m *Model) now() time.Time {
+	if m.opts.Demo {
+		return gitx.DemoNow
+	}
+	return clock()
+}
+
+// age is how long ago, in minutes, hours or days.
+func age(d time.Duration) string {
+	if d < 24*time.Hour {
+		return ago(d)
+	}
+	return strconv.Itoa(int(d/(24*time.Hour))) + "d ago"
+}
+
+// dateFormats are the ways list rows show dates, cycled with w. Each pads to one width so columns line up.
+var dateFormats = []string{"numeric", "relative", "short", "weekday"}
+
+// stamp is a date in a list row, in the chosen format. Numeric drops the year on lists under 70 columns.
+func (m *Model) stamp(t time.Time, w int) string {
+	l, thisYear := m.zoned(t), m.zoned(t).Year() == m.zoned(m.now()).Year()
+	var s string
+	switch dateFormats[m.dates] {
+	case "relative":
+		if d := m.now().Sub(t); d < 7*24*time.Hour {
+			return fmt.Sprintf("%-8s", age(d))
+		}
+		s = "Jan 2006"
+		if thisYear {
+			s = "2 Jan"
+		}
+		return fmt.Sprintf("%-8s", l.Format(s))
+	case "short":
+		s = "_2 Jan 2006"
+		if thisYear {
+			s = "_2 Jan 15:04"
+		}
+		return fmt.Sprintf("%-12s", l.Format(s))
+	case "weekday":
+		s = "Mon _2 Jan 2006"
+		if thisYear {
+			s = "Mon _2 Jan 15:04"
+		}
+		return fmt.Sprintf("%-16s", l.Format(s))
+	}
+	if w >= 70 {
+		return l.Format(dateFmt)
+	}
+	return l.Format(dateFmt)[len("2006-"):]
 }
 
 // zone names the zone times are shown in, such as "AEDT" or "UTC".
@@ -411,11 +461,11 @@ func (m *Model) mainLines(w, h int) []string {
 
 func (m *Model) commitSegs(c gitx.Commit, w int, showRepo bool) []seg {
 	segs := []seg{}
-	segs = append(segs, seg{m.stamp(c.When, w) + "  ", m.st.muted})
+	segs = append(segs, seg{m.stamp(c.When, w) + "  ", m.st.date})
 	if showRepo {
 		segs = append(segs, seg{pad(clean(c.Repo), 14), m.st.accent})
 	}
-	segs = append(segs, seg{short(c.Hash) + "  ", m.st.muted})
+	segs = append(segs, seg{short(c.Hash) + "  ", m.st.id})
 	return titled(segs, seg{clean(c.Subject) + "  ", m.st.text}, seg{clean(c.Author), m.authorStyle(c.Author, false)}, m.stacked(m.view), w)
 }
 
@@ -469,7 +519,7 @@ func (m *Model) runSegs(r gitx.Run, w int, showRepo bool) []seg {
 	}
 	// Status sits next to the workflow so it survives truncation on narrower panes.
 	segs = append(segs, seg{pad(clean(r.Workflow), 20), m.st.text}, seg{pad(state, 16), st}, seg{pad(clean(r.Branch), 18), m.st.accent})
-	segs = append(segs, seg{m.stamp(r.Started, w) + "  ", m.st.muted}, brk)
+	segs = append(segs, seg{m.stamp(r.Started, w) + "  ", m.st.date}, brk)
 	return append(segs, seg{clean(r.Title), m.st.muted})
 }
 
@@ -481,8 +531,8 @@ func (m *Model) runDetail(r gitx.Run) []string {
 		m.kv("Status", state, st),
 		m.kv("Trigger", clean(r.Event), m.st.text),
 		m.kv("Branch", clean(r.Branch), m.st.accent),
-		m.kv("Commit", clean(r.Commit), m.st.text),
-		m.kv("Started", m.when(r.Started), m.st.text),
+		m.kv("Commit", clean(r.Commit), m.st.id),
+		m.kv("Started", m.when(r.Started), m.st.date),
 		"",
 		m.kv("Link", clean(r.URL), m.st.muted), // after the blank, so only the page shows it
 		"",
@@ -541,9 +591,9 @@ func (m *Model) envSegs(e envRow, w int, showRepo bool) []seg {
 	if e.Ref == e.Commit { // deployed by commit ID; the ID is already in its own column
 		ref = ""
 	}
-	segs = append(segs, seg{pad(clean(e.Environment), 17), m.st.text}, seg{pad(short(clean(e.Commit)), 7), m.st.muted})
+	segs = append(segs, seg{pad(clean(e.Environment), 17), m.st.text}, seg{pad(short(clean(e.Commit)), 7), m.st.id})
 	if !e.When.IsZero() {
-		segs = append(segs, seg{m.stamp(e.When, w) + "  ", m.st.muted})
+		segs = append(segs, seg{m.stamp(e.When, w) + "  ", m.st.date})
 	}
 	return append(segs, brk, seg{ref + "  ", m.st.accent}, seg{note, st})
 }
@@ -552,13 +602,13 @@ func (m *Model) envDetail(e envRow) []string {
 	_, note, st := m.envState(e)
 	lines := []string{
 		" " + m.st.text.Bold(true).Render(clean(e.Repo)+" · "+clean(e.Environment)),
-		m.kv("Commit", clean(e.Commit), m.st.accent),
+		m.kv("Commit", clean(e.Commit), m.st.id),
 	}
 	if e.Ref != "" && e.Ref != e.Commit {
 		lines = append(lines, m.kv("Ref", clean(e.Ref), m.st.text))
 	}
 	if !e.When.IsZero() {
-		lines = append(lines, m.kv("Deployed", m.when(e.When), m.st.text))
+		lines = append(lines, m.kv("Deployed", m.when(e.When), m.st.date))
 	}
 	if e.Latest != "" {
 		lines = append(lines, m.kv("Latest", note+" at "+m.when(e.LatestWhen), st))
@@ -613,8 +663,8 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	if showRepo {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
-	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.muted}, seg{pad(review, 8), rst})
-	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.muted})
+	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.id}, seg{pad(review, 8), rst})
+	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.date})
 	return titled(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)}, m.stacked(m.view), w)
 }
 
@@ -627,7 +677,7 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		m.kv("Branch", clean(p.Branch), m.st.text),
 		m.kv("Review", review, rst),
 		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
-		m.kv("Updated", m.when(p.Updated), m.st.text),
+		m.kv("Updated", m.when(p.Updated), m.st.date),
 	}
 	if p.ForMe {
 		lines = slices.Insert(lines, 5, m.kv("Requested", "★ your review", m.st.accent))
@@ -757,13 +807,13 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 		return title, func(i int) []seg {
 			t := tags[i]
 			name := pad(clean(t.Name), nameW)
-			st := m.st.text
+			st := m.st.accent
 			if t.Name == m.tagBase() {
 				st = m.st.warn
 			}
 			segs := []seg{{name, st}}
-			segs = append(segs, seg{m.stamp(t.When, w) + "  ", m.st.muted})
-			return append(segs, seg{short(t.Commit) + "  ", m.st.muted}, brk, seg{clean(t.Subject), m.st.text})
+			segs = append(segs, seg{m.stamp(t.When, w) + "  ", m.st.date})
+			return append(segs, seg{short(t.Commit) + "  ", m.st.id}, brk, seg{clean(t.Subject), m.st.text})
 		}
 	default:
 		rows := m.connections()
@@ -963,10 +1013,10 @@ func (m *Model) repoInfo() []string {
 
 func (m *Model) commitDetail(c gitx.Commit) []string {
 	lines := []string{
-		m.kv("Commit", c.Hash, m.st.accent),
+		m.kv("Commit", c.Hash, m.st.id),
 		m.kv("Repo", clean(c.Repo), m.st.text),
 		m.kv("Author", clean(c.Author), m.authorStyle(c.Author, false)),
-		m.kv("Date", m.when(c.When), m.st.text),
+		m.kv("Date", m.when(c.When), m.st.date),
 		"",
 		" " + m.st.text.Bold(true).Render(clean(c.Subject)),
 	}
@@ -1006,8 +1056,8 @@ func (m *Model) detailLines() []string {
 		t := m.tagList()[i]
 		return []string{
 			m.kv("Tag", clean(t.Name), m.st.accent),
-			m.kv("Commit", t.Commit, m.st.text),
-			m.kv("Date", m.when(t.When), m.st.text),
+			m.kv("Commit", t.Commit, m.st.id),
+			m.kv("Date", m.when(t.When), m.st.date),
 			m.kv("Message", clean(t.Subject), m.st.text),
 		}
 	default:

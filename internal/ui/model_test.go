@@ -338,6 +338,44 @@ func TestDetailPageSurvivesResize(t *testing.T) {
 	}
 }
 
+func TestDateFormats(t *testing.T) {
+	o := demoOpts()
+	o.StatePath, o.UTC = t.TempDir()+"/state.json", true
+	m := setup(t, o, 150, 40)
+	now := gitx.DemoNow // demo ages count from the fixtures' moment
+	cases := []struct{ ago time.Duration }{{3 * time.Hour}, {10 * 24 * time.Hour}, {400 * 24 * time.Hour}}
+	want := map[string][]string{
+		"numeric":  {"2026-03-02 06:00", "2026-02-20 09:00", "2025-01-26 09:00"},
+		"relative": {"3h ago  ", "20 Feb  ", "Jan 2025"},
+		"short":    {" 2 Mar 06:00", "20 Feb 09:00", "26 Jan 2025 "},
+		"weekday":  {"Mon  2 Mar 06:00", "Fri 20 Feb 09:00", "Sun 26 Jan 2025 "},
+	}
+	for i, name := range dateFormats {
+		if i > 0 {
+			press(m, "w")
+		}
+		for j, c := range cases {
+			if got := m.stamp(now.Add(-c.ago), 100); got != want[name][j] {
+				t.Errorf("%s, %v ago: got %q, want %q", name, c.ago, got, want[name][j])
+			}
+		}
+	}
+	if got, _ := config.LoadState(o.StatePath); got.Dates != "weekday" {
+		t.Fatalf("the date format should be remembered, got %q", got.Dates)
+	}
+	if got := m.when(now.Add(-50 * time.Hour)); got != "2026-02-28 07:00 (2d ago)" {
+		t.Fatalf("details show the exact time and its age: %q", got)
+	}
+	press(m, "w")
+	if dateFormats[m.dates] != "numeric" || m.stamp(now, 60) != "03-02 09:00" {
+		t.Fatal("w should cycle back to numeric, which drops the year on narrow lists")
+	}
+	o.Dates = "relative"
+	if m = setup(t, o, 150, 40); dateFormats[m.dates] != "relative" {
+		t.Fatal("a saved date format should be used on the next run")
+	}
+}
+
 func TestToggleUTC(t *testing.T) {
 	// Pin the local zone: CI machines run in UTC, where local and UTC look the same.
 	real := time.Local
@@ -347,15 +385,15 @@ func TestToggleUTC(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	at := time.Date(2026, 10, 30, 3, 12, 0, 0, time.UTC)
 	local := "2026-10-30 14:12"
-	if m.when(at) != local || !strings.Contains(m.header(), "AEDT") || strings.Contains(m.header(), " UTC") {
-		t.Fatalf("times should start in the local zone: %q, header %q", m.when(at), m.header())
+	if m.stamp(at, 100) != local || !strings.Contains(m.header(), "AEDT") || strings.Contains(m.header(), " UTC") {
+		t.Fatalf("times should start in the local zone: %q, header %q", m.stamp(at, 100), m.header())
 	}
 	press(m, "u")
-	if m.when(at) != "2026-10-30 03:12" || !strings.Contains(m.header(), "UTC") || !strings.Contains(m.flash, "UTC") {
-		t.Fatalf("after u: %q, header %q", m.when(at), m.header())
+	if m.stamp(at, 100) != "2026-10-30 03:12" || !strings.Contains(m.header(), "UTC") || !strings.Contains(m.flash, "UTC") {
+		t.Fatalf("after u: %q, header %q", m.stamp(at, 100), m.header())
 	}
 	press(m, "u")
-	if m.when(at) != local {
+	if m.stamp(at, 100) != local {
 		t.Fatal("u again should switch back to local time")
 	}
 }
@@ -418,7 +456,11 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if strings.Contains(ansi.Strip(m.render()), "Preview") {
 		t.Fatal("demo should hide the preview pane with p")
 	}
-	press(m, "p")
+	press(m, "p", "w")
+	if !strings.Contains(ansi.Strip(m.render()), "d ago") {
+		t.Fatal("demo dates should read as recent in the relative format")
+	}
+	press(m, "w", "w", "w")
 	colours := map[any]bool{}
 	for _, p := range m.prList() {
 		colours[m.authorStyle(p.Author, true).GetForeground()] = true

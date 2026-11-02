@@ -265,11 +265,7 @@ func (m *Model) profileLines() []string {
 	if shown == ProfileOff {
 		return nil
 	}
-	now := time.Now()
-	if m.opts.Demo {
-		now = gitx.DemoNow
-	}
-	v, s := m.me.val, m.profileStats(now)
+	v, s := m.me.val, m.profileStats(m.now())
 	g := unicodeGlyphs
 	if shown != ProfileFull {
 		g = asciiGlyphs
