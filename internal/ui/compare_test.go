@@ -60,8 +60,8 @@ func TestDiffView(t *testing.T) {
 	if m.canDiff() {
 		t.Fatal("backend is clean, so d should not be offered")
 	}
-	press(m, "j") // frontend has changes in the demo data
-	if !m.canDiff() || !strings.Contains(m.footer(), "diff") {
+	press(m, "j")                                              // frontend has changes in the demo data
+	if !m.canDiff() || !strings.Contains(m.render(), "diff") { // in the preview pane
 		t.Fatal("d should be offered for a repository with changes")
 	}
 	press(m, "d")

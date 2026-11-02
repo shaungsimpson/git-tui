@@ -64,6 +64,7 @@ type Options struct {
 	Tabs         bool // the terminal can open a tab for a repository (Ghostty on macOS or Windows Terminal on WSL, outside tmux)
 	Profile      Profile
 	UTC          bool          // show times in UTC
+	NoPreview    bool          // hide the preview pane beside the list
 	StatePath    string        // where toggles are remembered; empty in demo mode and tests
 	Version      string        // as -version prints it
 	Executable   string        // the running binary
@@ -83,6 +84,7 @@ type Model struct {
 	st             styles
 	dark, themeSet bool
 	utc            bool // show times in UTC instead of the local zone
+	noPreview      bool // the list takes the preview pane's width
 
 	view    viewID
 	focus   paneID
@@ -120,6 +122,7 @@ type Model struct {
 	gens int // issues slot generations, unique across slots so a result never lands on another repository
 
 	help     bool
+	helpOff  int // how far help is scrolled
 	pendingG bool
 	seqGen   int
 	flash    string
@@ -137,7 +140,7 @@ type Model struct {
 }
 
 func New(o Options) *Model {
-	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
+	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, noPreview: o.NoPreview, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
 	m.gh = map[string]*ghState{}
 	m.why = map[int64]*slot[[]string]{}
 	for v, k := range sortKeys {
@@ -337,11 +340,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	if m.help {
+		page := max(1, m.layout().bodyH-2)
 		switch s {
 		case "esc", "?":
 			m.help = false
 		case "f2":
 			m.do(actTheme)
+		case "j", "down":
+			m.scrollHelp(1)
+		case "k", "up":
+			m.scrollHelp(-1)
+		case "pgdown", "space":
+			m.scrollHelp(page)
+		case "pgup":
+			m.scrollHelp(-page)
 		}
 		return nil
 	}
@@ -383,6 +395,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) canSort() bool {
 	_, ok := sortsOf[m.view]
 	return ok && !m.cmpOpen() && !m.diff.open && !m.inspect
+}
+
+// canPreview offers p where the window is wide enough for the preview pane and the list is on screen.
+func (m *Model) canPreview() bool { return m.width >= 120 && !m.inspect }
+
+// previewKeys reports whether the preview pane is beside the list, where it lists the selected row's shortcuts, so
+// the footer leaves them out. It ignores focus, so tabbing to the sidebar never changes the footer's height.
+func (m *Model) previewKeys() bool {
+	_, _, detail := m.widths()
+	return detail > 0 && !m.inspect
 }
 
 // cycleSort moves the view to its next sort, keeps the selected row selected and remembers the choice.
@@ -500,7 +522,11 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actAlerts:
 		return m.showAlerts()
 	case actHelp:
-		m.help = true
+		m.help, m.helpOff = true, 0
+	case actPreview:
+		m.noPreview = !m.noPreview
+		m.clampAll() // rows change between one and two lines with the list's width
+		m.savePrefs(func(s *config.State) { s.NoPreview = m.noPreview })
 	case actTheme:
 		m.themeSet = true
 		m.setTheme(!m.dark)

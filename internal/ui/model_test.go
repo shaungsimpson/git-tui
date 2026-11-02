@@ -129,6 +129,77 @@ func TestPreviewPane(t *testing.T) {
 	}
 }
 
+func TestPreviewKeepsRowShortcuts(t *testing.T) {
+	for _, h := range []int{16, 18, 40} { // short windows cut the preview's head, never its shortcuts
+		for _, g := range goKeys {
+			m := setup(t, demoOpts(), 150, h)
+			press(m, "g", g.key)
+			out := ansi.Strip(m.render())
+			for _, a := range actions {
+				if d := a.key.Help().Desc; a.item && a.available(m) && !strings.Contains(out, d) {
+					t.Errorf("150x%d %s: %q is in neither the preview nor the footer", h, viewNames[g.view], d)
+				}
+			}
+			rows := m.footerRows()
+			if press(m, "tab"); m.footerRows() != rows {
+				t.Errorf("150x%d %s: tabbing to the sidebar should keep the footer's height", h, viewNames[g.view])
+			}
+		}
+	}
+}
+
+func TestStackedRowsKeepTheirEnd(t *testing.T) {
+	m := setup(t, demoOpts(), 150, 40) // the preview leaves the list 74 columns
+	for _, c := range []struct{ keys, want string }{
+		{"o", "Remove v1 API, for real this time"}, // Overview: the last commit's subject
+		{"e", "last attempt failure"},              // Environments: why a deployment needs a look
+	} {
+		press(m, "g", c.keys)
+		if out := ansi.Strip(m.render()); !strings.Contains(out, c.want) {
+			t.Errorf("%s should keep %q on a second line:\n%s", viewNames[m.view], c.want, out)
+		}
+	}
+	press(m, "tab", "j", "tab", "g", "t")
+	if !m.stacked(viewTags) || !strings.Contains(ansi.Strip(m.render()), "Release v1.9") {
+		t.Error("Tags should put each tag's subject on a second line")
+	}
+	if m.stacked(viewConnections) {
+		t.Error("Connections rows fit on one line")
+	}
+}
+
+func TestTogglePreview(t *testing.T) {
+	o := demoOpts()
+	o.StatePath = t.TempDir() + "/state.json"
+	m := setup(t, o, 150, 40) // a 14-inch laptop: the preview leaves the list too narrow for one-line rows
+	press(m, "g", "p")
+	if !m.stacked(viewPRs) || strings.Contains(ansi.Strip(m.footer()), "open in browser") {
+		t.Fatal("with the preview shown, rows take two lines and the footer leaves its shortcuts to the preview")
+	}
+	press(m, "p")
+	if out := ansi.Strip(m.render()); strings.Contains(out, "Preview") || m.stacked(viewPRs) {
+		t.Fatal("p should hide the preview and give the list one-line rows")
+	}
+	if !strings.Contains(ansi.Strip(m.footer()), "open in browser") {
+		t.Fatal("with the preview hidden, the footer offers the row's shortcuts again")
+	}
+	if got, _ := config.LoadState(o.StatePath); !got.NoPreview {
+		t.Fatal("hiding the preview should be remembered")
+	}
+	o.NoPreview = true
+	if m = setup(t, o, 150, 40); strings.Contains(ansi.Strip(m.render()), "Preview") {
+		t.Fatal("a saved hidden preview should stay hidden on the next run")
+	}
+	press(m, "p")
+	if got, _ := config.LoadState(o.StatePath); got.NoPreview || !strings.Contains(ansi.Strip(m.render()), "Preview") {
+		t.Fatal("p should bring the preview back and remember it")
+	}
+	m.Update(tea.WindowSizeMsg{Width: 119, Height: 40})
+	if strings.Contains(ansi.Strip(m.footer()), "preview pane") {
+		t.Fatal("under 120 columns there is no preview to toggle")
+	}
+}
+
 func TestDetailPageEnterKeepsItsJobs(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	press(m, "v")
@@ -343,6 +414,11 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.render()), "Preview") {
 		t.Fatal("demo should show the preview pane beside the list at 140 columns")
 	}
+	press(m, "p")
+	if strings.Contains(ansi.Strip(m.render()), "Preview") {
+		t.Fatal("demo should hide the preview pane with p")
+	}
+	press(m, "p")
 	colours := map[any]bool{}
 	for _, p := range m.prList() {
 		colours[m.authorStyle(p.Author, true).GetForeground()] = true

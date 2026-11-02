@@ -68,7 +68,7 @@ git-tui tells you when a newer stable release exists, and how to install it by h
 - Go 1.26, or Go 1.21 or newer to fetch it: the module declares `go 1.26.0`, and with the default `GOTOOLCHAIN=auto` Go 1.21 and later download 1.26 automatically.
 - `git` on `PATH`.
 - Optional: the GitHub CLI (`gh`), logged in with `gh auth login`, for the Pull requests, Environments and Deploys views. Each repository's `origin` must point at github.com. A repository with no `origin` remote yet, such as one not pushed to GitHub, is not an error: the status line notes `no origin remote yet (not pushed to GitHub)` and its local views work as usual.
-- A terminal at least 60×16. The sidebar appears from 100 columns, and from 120 a preview pane beside the list shows the selected item's key details and the shortcuts that act on it. It never takes focus: `v` opens the full detail page. When the list is narrower than 100 columns, commit, pull request and deploy rows put their title on a second line and everything else on the first, including the author when it fits; a long author follows the title instead of being cut off.
+- A terminal at least 60×16. The sidebar appears from 100 columns, and from 120 a preview pane beside the list shows the selected item's key details and the shortcuts that act on it. It never takes focus: `v` opens the full detail page. `p` hides it, giving the list its width: on a 14-inch laptop that keeps rows on one line. When the list is narrower than 100 columns, rows take two lines: commits, pull requests and deploy runs put their title on the second, Overview and Tags their last commit's subject, and Environments the deployed ref and any failed or pending attempt. Everything else stays on the first line, including the author when it fits; a long author follows the title instead of being cut off.
 
 No Nerd Font or image support is required.
 
@@ -115,7 +115,7 @@ You can configure two folders cloned from the same GitHub repository, such as a 
 
 ## Remembered preferences
 
-The time zone (`u`), the profile header style (`b`), each list's sort (`s`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
@@ -191,7 +191,7 @@ The header degrades to what the terminal can show:
 
 ## Keyboard
 
-The footer lists the shortcuts that apply right now. When they do not fit on one line it takes a second, unless that would leave the panes fewer than 10 lines or shrink the profile header; then the others give way first so `?` help and `Ctrl+R` refresh stay visible. The footer keeps its height while you type a filter or answer a question, so the panes do not jump. `?` lists every key.
+The footer lists the shortcuts that apply right now. When they do not fit on one line it takes a second, unless that would leave the panes fewer than 10 lines or shrink the profile header; then the others give way first so `?` help stays visible. While the preview pane is shown, the footer leaves the selected row's shortcuts to it. The footer keeps its height while you type a filter or answer a question, so the panes do not jump. `?` lists every key, available or not, grouped: those that work everywhere first, then lists, the detail page and repositories; `j`/`k` and `PgUp`/`PgDn` scroll it when it does not fit.
 
 | Key               | Action                                                                     |
 |-------------------|----------------------------------------------------------------------------|
@@ -205,7 +205,8 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `n`               | Go to Pull requests across all repositories, filtered to your review requests (`is:review`); again for your PRs ready to merge (`is:ready`); again to show every PR |
 | `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout). Each tab underlines its letter |
 | `Ctrl+R`          | Refresh everything on screen now, including failed loads; in Connections, also check for a newer release |
-| `?`               | Contextual shortcut help                                                   |
+| `?`               | Every shortcut, grouped by where it applies                                |
+| `p`               | Show or hide the preview pane (120 columns and wider). Remembered between runs |
 | `F2`              | Toggle the dark and light themes                                           |
 | `d`               | Show a diff: on a pull request, its code changes; on a repository with uncommitted changes (Overview row, sidebar or Repository view), those changes in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
 | `o`               | In Pull requests and Deploys: open the selected PR or run in your browser (https links only), with `open` on macOS, `wslview` on WSL when it is installed, and `xdg-open` otherwise |

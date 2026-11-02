@@ -32,8 +32,8 @@ func TestOpenPullRequestInBrowser(t *testing.T) {
 	if !strings.Contains(m.flash, "#"+strconv.Itoa(want.Number)) {
 		t.Fatalf("flash %q", m.flash)
 	}
-	if !strings.Contains(m.footer(), "open in browser") {
-		t.Fatal("footer should offer o on pull requests")
+	if !strings.Contains(m.render(), "open in browser") {
+		t.Fatal("the preview should offer o on pull requests")
 	}
 
 	m.repos[0].gh.prs.val[0].URL = "file:///etc/passwd"

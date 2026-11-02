@@ -61,31 +61,35 @@ func TestPullRequestBodyFilesAndDiff(t *testing.T) {
 	}
 }
 
-func TestHelpFitsCommonSizes(t *testing.T) {
-	for _, sz := range [][2]int{{80, 24}, {60, 16}, {140, 30}} {
+func TestHelpListsEveryKey(t *testing.T) {
+	for _, sz := range [][2]int{{60, 16}, {80, 24}, {140, 30}} {
 		m := setup(t, demoOpts(), sz[0], sz[1])
-		press(m, "g", "p", "?") // Pull requests offers the most shortcuts
-		out := ansi.Strip(m.render())
-		if !strings.Contains(out, "g then") || !strings.Contains(out, "c Connections") {
-			t.Errorf("%dx%d: every view jump should be visible, including the last", sz[0], sz[1])
+		press(m, "g", "o", "?") // Overview offers few shortcuts, but help lists them all
+		seen := ""
+		for range 40 { // scroll to the end, keeping every page
+			seen += ansi.Strip(m.render())
+			press(m, "j")
 		}
 		if !strings.Contains(m.footer(), "close help") {
 			t.Errorf("%dx%d: the footer should say how to close help", sz[0], sz[1])
 		}
-		if !strings.Contains(out, "quit") || !strings.Contains(out, "UTC / local times") {
-			t.Errorf("%dx%d: every shortcut should fit, including u and ctrl+c:\n%s", sz[0], sz[1], out)
+		if !strings.Contains(seen, "c Connections") {
+			t.Errorf("%dx%d: every view jump should be listed, including the last", sz[0], sz[1])
+		}
+		for _, want := range append(groupNames, "UTC / local times", "split right/down", "move repository up/down", "preview pane", "refresh", "quit") {
+			// "UTC / local times" and the longest descriptions seen whole mean no column was cut at the edge.
+			if !strings.Contains(seen, want) {
+				t.Errorf("%dx%d: help should list %q:\n%s", sz[0], sz[1], want, seen)
+			}
+		}
+		if strings.Index(seen, "Everywhere") > strings.Index(seen, "Detail page") {
+			t.Errorf("%dx%d: the keys that work everywhere come first", sz[0], sz[1])
 		}
 	}
-
-	// The most shortcuts at once: an active filter adds esc. It must still fit at the minimum size.
 	m := setup(t, demoOpts(), 60, 16)
-	press(m, "g", "p", "/", "x", "enter", "?")
-	out := ansi.Strip(m.render())
-	// "UTC / local times" is the longest description; seeing it whole means no column was cut at the edge.
-	for _, want := range []string{"back", "quit", "UTC / local times", "c Connections"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("60x16 with every shortcut available is missing %q:\n%s", want, out)
-		}
+	press(m, "?", "pgdown", "pgdown", "pgdown", "esc", "?")
+	if m.helpOff != 0 {
+		t.Fatal("help should open at the top")
 	}
 }
 
@@ -116,6 +120,11 @@ func TestRenderFitsTerminal(t *testing.T) {
 		check("repository")
 		press(m, "?")
 		check("help")
+		press(m, "pgdown")
+		check("help scrolled")
+		press(m, "esc", "p")
+		check("preview hidden")
+		press(m, "p", "?")
 		press(m, "esc", "f2")
 		check("light")
 		for _, mode := range []string{"full", "ascii", "text"} { // the badges in each header mode
@@ -319,7 +328,7 @@ func TestFooterWrapsAndKeepsBasics(t *testing.T) {
 	m := setup(t, demoOpts(), 100, 40)
 	press(m, "g", "p")
 	f := ansi.Strip(m.footer())
-	if m.footerRows() != 2 || strings.Count(f, "\n") != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "ctrl+r refresh") {
+	if m.footerRows() != 2 || strings.Count(f, "\n") != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "open in browser") {
 		t.Fatalf("a crowded footer should wrap to two lines with every shortcut:\n%s", f)
 	}
 	body := m.layout().bodyH
@@ -339,8 +348,8 @@ func TestFooterWrapsAndKeepsBasics(t *testing.T) {
 	m = setup(t, o, 80, 16) // the header's one line leaves no room for a second footer line
 	press(m, "g", "p")
 	f = ansi.Strip(m.footer())
-	if m.footerRows() != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "ctrl+r refresh") || !strings.Contains(f, "…") {
-		t.Fatalf("a one-line footer should drop other shortcuts before help and refresh:\n%s", f)
+	if m.footerRows() != 1 || !strings.Contains(f, "? help") || !strings.Contains(f, "…") {
+		t.Fatalf("a one-line footer should drop other shortcuts before help:\n%s", f)
 	}
 }
 

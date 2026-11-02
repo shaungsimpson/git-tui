@@ -52,7 +52,7 @@ func (m *Model) widths() (side, main, detail int) {
 		side = sideW
 		main -= sideW + 1
 	}
-	if m.width >= 120 {
+	if m.width >= 120 && !m.noPreview {
 		detail = main * 2 / 5
 		main -= detail + 1
 	}
@@ -76,7 +76,7 @@ func (m *Model) rowsIn(v viewID, bodyH int) int {
 	return max(1, h)
 }
 
-// stackedBelow is the list width under which rows with a title move the title to a second line.
+// stackedBelow is the list width under which rows move their title, subject or notes to a second line.
 const stackedBelow = 100
 
 // stacked reports whether view v draws each row on two lines.
@@ -84,7 +84,7 @@ func (m *Model) stacked(v viewID) bool {
 	if _, w, _ := m.widths(); w >= stackedBelow {
 		return false
 	}
-	return v == viewActivity || v == viewPRs || v == viewRepo || v == viewRuns || m.cmp.open && m.cmp.view == v
+	return v != viewConnections || m.cmp.open && m.cmp.view == v
 }
 
 func (m *Model) View() tea.View {
@@ -118,7 +118,7 @@ func (m *Model) render() string {
 		rows = append(rows, m.repoBar())
 	}
 	if m.help {
-		rows = append(rows, box(m.helpLines(), m.width, l.bodyH))
+		rows = append(rows, box(m.helpLines(l.bodyH), m.width, l.bodyH))
 	} else if m.diff.open {
 		rows = append(rows, box(m.diffLines(l.bodyH), m.width, l.bodyH))
 	} else if m.scan.open {
@@ -132,7 +132,7 @@ func (m *Model) render() string {
 		}
 		cols = append(cols, box(m.mainLines(l.mainW, l.bodyH), l.mainW, l.bodyH))
 		if l.detailW > 0 {
-			cols = append(cols, box(m.previewLines(l.detailW), l.detailW, l.bodyH))
+			cols = append(cols, box(m.previewLines(l.detailW, l.bodyH), l.detailW, l.bodyH))
 		}
 		rows = append(rows, m.join(cols, l.bodyH))
 	}
@@ -545,7 +545,7 @@ func (m *Model) envSegs(e envRow, w int, showRepo bool) []seg {
 	if !e.When.IsZero() {
 		segs = append(segs, seg{m.stamp(e.When, w) + "  ", m.st.muted})
 	}
-	return append(segs, seg{ref + "  ", m.st.accent}, seg{note, st})
+	return append(segs, brk, seg{ref + "  ", m.st.accent}, seg{note, st})
 }
 
 func (m *Model) envDetail(e envRow) []string {
@@ -763,7 +763,7 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 			}
 			segs := []seg{{name, st}}
 			segs = append(segs, seg{m.stamp(t.When, w) + "  ", m.st.muted})
-			return append(segs, seg{short(t.Commit) + "  ", m.st.muted}, seg{clean(t.Subject), m.st.text})
+			return append(segs, seg{short(t.Commit) + "  ", m.st.muted}, brk, seg{clean(t.Subject), m.st.text})
 		}
 	default:
 		rows := m.connections()
@@ -808,7 +808,7 @@ func (m *Model) overviewSegs(r *repoState) []seg {
 	if s.Last != nil {
 		subject = clean(s.Last.Subject)
 	}
-	return []seg{glyph, name, {pad(branch, 24), m.st.accent}, {pad(state, 10), stStyle}, {pad(tracking, 11), m.st.muted}, {subject, m.st.muted}}
+	return []seg{glyph, name, {pad(branch, 24), m.st.accent}, {pad(state, 10), stStyle}, {pad(tracking, 11), m.st.muted}, brk, {subject, m.st.muted}}
 }
 
 func (m *Model) emptyMessage() (string, lipgloss.Style) {
@@ -1052,8 +1052,9 @@ func (m *Model) detailPane(w, h int) []string {
 }
 
 // previewLines is the pane beside the list: the head of the selected row's details, up to their first long
-// section, then the shortcuts that act on it. It never takes focus; v opens the whole detail page.
-func (m *Model) previewLines(w int) []string {
+// section, then the shortcuts that act on it, which the footer leaves out, so the head gives way to them at
+// height h. It never takes focus; v opens the whole detail page.
+func (m *Model) previewLines(w, h int) []string {
 	head := m.detailLines()
 	if m.view != viewConnections || m.cmpOpen() { // a connection's details are all short notes
 		if i := slices.Index(head, ""); i >= 0 {
@@ -1069,18 +1070,27 @@ func (m *Model) previewLines(w int) []string {
 		}
 	}
 	if len(keys) > 0 {
-		lines = append(append(lines, "", m.st.title.Render(" Shortcuts")), keys...)
+		tail := append([]string{"", m.st.title.Render(" Shortcuts")}, keys...)
+		lines = append(lines[:max(1, min(len(lines), h-len(tail)))], tail...)
 	}
 	return lines
 }
 
 // ---- help, status and footer ----
 
-// helpLines puts the view jumps first, then the shortcuts in one column, or in two when the terminal is wide
-// or one column would not fit. If two still do not fit, the blank separator goes. The footer says how to
-// close help, so it needs no line here.
-func (m *Model) helpLines() []string {
-	lines := []string{fit(m.st.titleFocus.Render(" Keyboard shortcuts · "+viewNames[m.view]), m.st.muted.Render("git-tui "+m.version()+" "), m.width)}
+// helpLines is the help page at height h: a fixed title, then the view jumps and every shortcut by group,
+// scrolled by helpOff.
+func (m *Model) helpLines(h int) []string {
+	title := fit(m.st.titleFocus.Render(" Keyboard shortcuts · "+viewNames[m.view]), m.st.muted.Render("git-tui "+m.version()+" "), m.width)
+	body := m.helpBody()
+	off := min(m.helpOff, max(0, len(body)-(h-1)))
+	return append([]string{title}, body[off:]...)
+}
+
+// helpBody lists every key, available here or not, so help is the whole map: the view jumps, then each group
+// in one column, or in two when the terminal is wide.
+func (m *Model) helpBody() []string {
+	var lines []string
 	row, label := "", pad("g then", 10)
 	for _, g := range goKeys { // wrap the jumps rather than cut them off
 		item := m.st.key.Render(g.key) + " " + m.st.text.Render(viewNames[g.view])
@@ -1093,32 +1103,36 @@ func (m *Model) helpLines() []string {
 		}
 		row += item
 	}
-	lines = append(lines, "  "+m.st.key.Render(label)+row, "")
-	var keys []string
-	for _, a := range actions {
-		h := a.key.Help()
-		if h.Key == "" || !a.available(m) || a.id == actHelp { // the footer says how to close help
+	lines = append(lines, "  "+m.st.key.Render(label)+row)
+	for g, name := range groupNames {
+		var keys []string
+		for _, a := range actions {
+			if h := a.key.Help(); h.Key != "" && a.group == helpGroup(g) {
+				// 9 fits "pgup/pgdn"; two columns need 100 cells, as the longest entry is 49.
+				keys = append(keys, "  "+m.st.key.Render(pad(h.Key, 9))+m.st.text.Render(h.Desc))
+			}
+		}
+		lines = append(lines, "", m.st.title.Render(" "+name))
+		if m.width < 100 {
+			lines = append(lines, keys...)
 			continue
 		}
-		// 9 fits "shift+tab"; with the longest description a column is 30 cells, half the 60-column minimum.
-		keys = append(keys, "  "+m.st.key.Render(pad(h.Key, 9))+m.st.text.Render(h.Desc))
-	}
-	bodyH := m.layout().bodyH
-	if m.width < 100 && len(lines)+len(keys) <= bodyH {
-		return append(lines, keys...)
-	}
-	half, col := (len(keys)+1)/2, m.width/2
-	if len(lines)+half > bodyH {
-		lines = lines[:len(lines)-1] // drop the blank separator before dropping a shortcut
-	}
-	for i := range half {
-		row := keys[i] + strings.Repeat(" ", max(0, col-lipgloss.Width(keys[i])))
-		if i+half < len(keys) {
-			row += keys[i+half]
+		half, col := (len(keys)+1)/2, m.width/2
+		for i := range half {
+			row := keys[i] + strings.Repeat(" ", max(0, col-lipgloss.Width(keys[i])))
+			if i+half < len(keys) {
+				row += keys[i+half]
+			}
+			lines = append(lines, row)
 		}
-		lines = append(lines, row)
 	}
 	return lines
+}
+
+// scrollHelp moves help by d lines, stopping with its last line at the bottom.
+func (m *Model) scrollHelp(d int) {
+	last := max(0, len(m.helpBody())-(m.layout().bodyH-1))
+	m.helpOff = min(max(0, m.helpOff+d), last)
 }
 
 type health struct {
@@ -1257,7 +1271,11 @@ func (m *Model) footer() string {
 
 func (m *Model) footerLines() string {
 	if m.help {
-		return " " + m.st.key.Render("esc") + m.st.muted.Render(" or ") + m.st.key.Render("?") + m.st.muted.Render(" close help")
+		f := " " + m.st.key.Render("esc") + m.st.muted.Render(" or ") + m.st.key.Render("?") + m.st.muted.Render(" close help")
+		if len(m.helpBody()) > m.layout().bodyH-1 {
+			f += "  " + m.st.key.Render("j/k") + m.st.muted.Render(" scroll")
+		}
+		return f
 	}
 	if m.diff.open {
 		return ansi.Truncate(" "+m.st.key.Render("j/k")+m.st.muted.Render(" scroll  ")+m.st.key.Render("pgup/pgdn")+
@@ -1306,7 +1324,7 @@ type hint struct {
 func (m *Model) footerHints() ([]hint, string) {
 	var hints []hint
 	for _, a := range actions {
-		if a.hint && a.available(m) {
+		if a.hint && a.available(m) && (!a.item || !m.previewKeys()) {
 			h := a.key.Help()
 			hints = append(hints, hint{m.st.key.Render(h.Key) + " " + m.st.muted.Render(h.Desc), a.basic})
 		}
