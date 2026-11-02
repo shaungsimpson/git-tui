@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 
@@ -165,6 +166,46 @@ func TestStackedRowsKeepTheirEnd(t *testing.T) {
 	}
 	if m.stacked(viewConnections) {
 		t.Error("Connections rows fit on one line")
+	}
+}
+
+func TestFetchStaleness(t *testing.T) {
+	m := setup(t, demoOpts(), 150, 40)
+	out := ansi.Strip(m.render())
+	for _, want := range []string{"fetched 2h ago", "fetched 3d ago", "fetched 12d ago"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Overview should show %q:\n%s", want, out)
+		}
+	}
+	for d, st := range map[time.Duration]lipgloss.Style{2 * time.Hour: m.st.date, 3 * 24 * time.Hour: m.st.warn, 12 * 24 * time.Hour: m.st.bad} {
+		if m.fetchStyle(d).GetForeground() != st.GetForeground() {
+			t.Errorf("a fetch %v old has the wrong colour", d)
+		}
+	}
+
+	press(m, "tab", "j", "tab", "g", "r") // backend: 3 fetched but not pulled, 5 more on GitHub
+	out = ansi.Strip(m.render())
+	for _, want := range []string{"Incoming from origin/main · 3", "Recent commits", "5 newer on GitHub", "backend: 5 newer commits on GitHub"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Repository should show %q:\n%s", want, out)
+		}
+	}
+	if m.incomingRows() != 3 || len(m.repoCommits()) != 3+len(m.repos[0].log.val) {
+		t.Fatalf("incoming commits should lead the list: %d of %d", m.incomingRows(), len(m.repoCommits()))
+	}
+	r := m.repos[0]
+	r.summary.val.Behind = 80 // more than incomingCap loads
+	if h := m.repoHeading(0); h != "Incoming from origin/main · 3 of 80" {
+		t.Fatalf("a capped incoming list should say how many there are: %q", h)
+	}
+	r.summary.val.UpstreamID = "0000000000000000000000000000000000000001" // fetched again since GitHub was asked
+	if newer(r) != 0 || strings.Contains(ansi.Strip(m.render()), "newer on GitHub") {
+		t.Fatal("a GitHub count from before the last fetch should not show")
+	}
+
+	press(m, "tab", "j", "j", "tab") // personal-site, fetched 12 days ago
+	if note, _ := m.staleNote(); !strings.Contains(note, "personal-site last fetched 12d ago") {
+		t.Fatalf("the status line should warn about an old fetch: %q", note)
 	}
 }
 
@@ -460,7 +501,17 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.render()), "d ago") {
 		t.Fatal("demo dates should read as recent in the relative format")
 	}
-	press(m, "w", "w", "w")
+	press(m, "w", "w", "w", "g", "o")
+	if !strings.Contains(ansi.Strip(m.render()), "fetched 12d ago") {
+		t.Fatal("demo Overview should show a stale fetch")
+	}
+	m.repo = 1 // backend, whose last fetch saw commits it has not pulled
+	press(m, "g", "r")
+	if out := ansi.Strip(m.render()); !strings.Contains(out, "Incoming from") || !strings.Contains(out, "newer on GitHub") {
+		t.Fatal("demo Repository should show incoming commits and GitHub's newer ones")
+	}
+	m.repo = 0
+	press(m, "g", "p")
 	colours := map[any]bool{}
 	for _, p := range m.prList() {
 		colours[m.authorStyle(p.Author, true).GetForeground()] = true

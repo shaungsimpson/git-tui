@@ -125,6 +125,52 @@ func TestGitAgainstTempRepo(t *testing.T) {
 	}
 }
 
+func TestFetchedAndIncoming(t *testing.T) {
+	origin := gitRepo(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	run := func(in string, args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = in
+		cmd.Env = append(gitEnv(cmd.Environ()), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+			"GIT_AUTHOR_NAME=T", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=T", "GIT_COMMITTER_EMAIL=t@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run(origin, "clone", "-q", origin, dir)
+	g, ctx := Git{}, context.Background()
+	s, err := g.Summary(ctx, "tmp", dir)
+	if err != nil || !s.Fetched.IsZero() || s.UpstreamID != s.Head || s.Behind != 0 {
+		t.Fatalf("a fresh clone has never fetched and is level with origin: %v %+v", err, s)
+	}
+
+	run(origin, "commit", "-q", "--allow-empty", "-m", "d")
+	run(dir, "fetch", "-q")
+	s, err = g.Summary(ctx, "tmp", dir)
+	if err != nil || s.Fetched.IsZero() || s.Behind != 1 || s.UpstreamID == s.Head || !IsCommitID(s.UpstreamID) {
+		t.Fatalf("after a fetch: %v %+v", err, s)
+	}
+	in, err := g.Incoming(ctx, "tmp", dir, 50)
+	if err != nil || len(in) != 1 || in[0].Subject != "d" {
+		t.Fatalf("incoming %v %+v", err, in)
+	}
+
+	tree := filepath.Join(t.TempDir(), "tree")
+	run(dir, "worktree", "add", "-q", "-b", "side", tree)
+	if w, err := g.Summary(ctx, "tmp", tree); err != nil || !w.Fetched.Equal(s.Fetched) {
+		t.Fatalf("a worktree shares its clone's fetch time: %v %v, want %v", err, w.Fetched, s.Fetched)
+	}
+}
+
+func TestPlainBranch(t *testing.T) {
+	for b, want := range map[string]bool{"main": true, "feature/dark-mode-v9": true, "v1.2_x": true,
+		"": false, "a..b": false, "a?b": false, "a#b": false, "a b": false, "../../user": false} {
+		if plainBranch(b) != want {
+			t.Errorf("plainBranch(%q) = %v, want %v", b, !want, want)
+		}
+	}
+}
+
 func TestLogEmptyRepository(t *testing.T) {
 	dir := t.TempDir()
 	cmd := exec.Command("git", "init", "-q")

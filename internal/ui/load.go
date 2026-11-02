@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -32,6 +33,15 @@ type repoState struct {
 	tags    slot[[]gitx.Tag]
 	slug    slot[string] // the GitHub "owner/name" of origin, read once
 	gh      *ghState
+
+	incoming  slot[[]gitx.Commit] // on the upstream branch as of the last fetch, not yet in HEAD
+	unfetched slot[fetchGap]      // per folder, not shared: it counts from this clone's last fetch
+}
+
+// fetchGap is how many commits GitHub's branch has after base, the upstream commit when it was asked.
+type fetchGap struct {
+	base string
+	n    int
 }
 
 // ghState is one GitHub repository's data. Until a folder's slug is known it has a state of its own.
@@ -60,6 +70,8 @@ const (
 	kindSlug
 	kindRelease
 	kindWhy
+	kindIncoming
+	kindUnfetched
 )
 
 // github reports whether a kind is GitHub data, shared between clones of one repository.
@@ -172,6 +184,23 @@ func (m *Model) load(i int, kind dataKind, force bool) tea.Cmd {
 		return start(m, &r.gh.deps, force, kind, i, func(ctx context.Context) ([]gitx.Deployment, error) { return src.Deployments(ctx, name, dir) })
 	case kindRuns:
 		return start(m, &r.gh.runs, force, kind, i, func(ctx context.Context) ([]gitx.Run, error) { return src.DeployRuns(ctx, name, dir) })
+	case kindIncoming:
+		if !r.summary.loaded || !r.summary.val.HasAB {
+			return nil // no upstream branch, so nothing can come in; the summary's arrival asks again
+		}
+		return start(m, &r.incoming, force, kind, i, func(ctx context.Context) ([]gitx.Commit, error) {
+			return src.Incoming(ctx, name, dir, incomingCap)
+		})
+	case kindUnfetched:
+		branch, ok := strings.CutPrefix(r.summary.val.Upstream, "origin/")
+		base := r.summary.val.UpstreamID
+		if !r.summary.loaded || !ok || base == "" {
+			return nil
+		}
+		return start(m, &r.unfetched, force, kind, i, func(ctx context.Context) (fetchGap, error) {
+			n, err := src.Unfetched(ctx, dir, base, branch)
+			return fetchGap{base, n}, err
+		})
 	default:
 		return start(m, &r.tags, force, kind, i, func(ctx context.Context) ([]gitx.Tag, error) { return src.Tags(ctx, name, dir) })
 	}
@@ -225,6 +254,8 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		msg.store(msg) // a superseded result is dropped here: its generation no longer matches
 	}
 	switch msg.kind {
+	case kindSummary:
+		cmd = m.ensure(false) // incoming commits and GitHub's count wait for the upstream branch it names
 	case kindViewer:
 		cmd = m.ensureAvatar()
 	case kindScan:

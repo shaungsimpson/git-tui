@@ -69,6 +69,9 @@ func (m *Model) rowsIn(v viewID, bodyH int) int {
 		if info := m.repoInfo(); len(info) > 0 {
 			h -= len(info) + 1
 		}
+		if m.incomingRows() > 0 {
+			h-- // the heading between incoming and recent commits
+		}
 	}
 	if m.stacked(v) {
 		return max(1, h/2)
@@ -442,9 +445,10 @@ func (m *Model) mainLines(w, h int) []string {
 	if m.view == viewRepo {
 		if info := m.repoInfo(); len(info) > 0 {
 			lines = append(lines, info...)
-			lines = append(lines, m.st.title.Render(" Recent commits"))
+			lines = append(lines, m.st.title.Render(" "+m.repoHeading(*off)))
 		}
 	}
+	in := m.incomingRows()
 	if n == 0 {
 		msg, st := m.emptyMessage()
 		for _, l := range m.wrap(msg, w, st) {
@@ -454,6 +458,9 @@ func (m *Model) mainLines(w, h int) []string {
 	}
 	end := min(n, *off+m.listHeight(m.view))
 	for i := *off; i < end; i++ {
+		if m.view == viewRepo && i == in && i > *off { // the incoming commits end on screen
+			lines = append(lines, m.st.title.Render(" Recent commits"))
+		}
 		lines = append(lines, m.row(rows(i), w, i == *cur, m.stacked(m.view))...)
 	}
 	return lines
@@ -858,7 +865,60 @@ func (m *Model) overviewSegs(r *repoState) []seg {
 	if s.Last != nil {
 		subject = clean(s.Last.Subject)
 	}
-	return []seg{glyph, name, {pad(branch, 24), m.st.accent}, {pad(state, 10), stStyle}, {pad(tracking, 11), m.st.muted}, brk, {subject, m.st.muted}}
+	segs := []seg{glyph, name, {pad(branch, 24), m.st.accent}, {pad(state, 10), stStyle}, {pad(tracking, 11), m.st.muted}, brk}
+	if f, st := m.fetched(s); f != "" {
+		segs = append(segs, seg{f + " · ", st})
+	}
+	return append(segs, seg{subject, m.st.muted})
+}
+
+// fetched is how long ago a clone last fetched, or "" for one with no upstream that never has.
+func (m *Model) fetched(s gitx.Summary) (string, lipgloss.Style) {
+	switch {
+	case !s.Fetched.IsZero():
+		d := m.now().Sub(s.Fetched)
+		return "fetched " + age(d), m.fetchStyle(d)
+	case s.Upstream != "":
+		return "not fetched since clone", m.st.muted
+	}
+	return "", m.st.muted
+}
+
+// fetchStyle colours a fetch's age: amber after a day, red after a week.
+func (m *Model) fetchStyle(d time.Duration) lipgloss.Style {
+	switch {
+	case d >= 7*24*time.Hour:
+		return m.st.bad
+	case d >= 24*time.Hour:
+		return m.st.warn
+	}
+	return m.st.date
+}
+
+// newer is how many commits GitHub has past this clone's last fetch, once asked since that fetch.
+func newer(r *repoState) int {
+	if g := r.unfetched; g.loaded && g.val.base == r.summary.val.UpstreamID {
+		return g.val.n
+	}
+	return 0
+}
+
+// staleNote warns in the status line that the selected repository's commits are behind GitHub's, or may be:
+// GitHub has newer ones, or the last fetch is a day old.
+func (m *Model) staleNote() (string, lipgloss.Style) {
+	i := m.selectedRepo()
+	if i < 0 || !m.repos[i].summary.loaded {
+		return "", m.st.muted
+	}
+	r := m.repos[i]
+	s, name := r.summary.val, clean(r.cfg.Name)
+	if n := newer(r); n > 0 {
+		return fmt.Sprintf(" %s: %d newer commits on GitHub; run git fetch to see them", name, n), m.st.warn
+	}
+	if d := m.now().Sub(s.Fetched); !s.Fetched.IsZero() && d >= 24*time.Hour {
+		return " " + name + " last fetched " + age(d) + ": run git fetch for newer commits", m.fetchStyle(d)
+	}
+	return "", m.st.muted
 }
 
 func (m *Model) emptyMessage() (string, lipgloss.Style) {
@@ -994,12 +1054,35 @@ func (m *Model) summaryLines(r *repoState) []string {
 		m.kv("Branch", branch, m.st.accent),
 		m.kv("HEAD", head, m.st.text),
 		m.kv("Upstream", upstream, m.st.text),
-		m.kv("Tracking", tracking, m.st.text),
-		m.kv("Worktree", work, wst))
+		m.kv("Tracking", tracking, m.st.text))
+	if f, st := m.fetched(s); f != "" {
+		if !s.Fetched.IsZero() {
+			f = m.when(s.Fetched)
+		}
+		if n := newer(r); n > 0 {
+			f += fmt.Sprintf(" · %d newer on GitHub", n)
+		}
+		lines = append(lines, m.kv("Fetched", f, st))
+	}
+	lines = append(lines, m.kv("Worktree", work, wst))
 	if r.summary.err != nil {
 		lines = append(lines, m.kv("Refresh", "failed: "+clean(r.summary.err.Error()), m.st.bad))
 	}
 	return lines
+}
+
+// repoHeading titles the Repository list from row off: its incoming commits first, then its recent ones.
+func (m *Model) repoHeading(off int) string {
+	n := m.incomingRows()
+	if off >= n {
+		return "Recent commits"
+	}
+	s := m.selected().summary.val
+	count := strconv.Itoa(n)
+	if s.Behind > n && m.filters[viewRepo] == "" {
+		count += " of " + strconv.Itoa(s.Behind) // the list stops at incomingCap
+	}
+	return "Incoming from " + clean(s.Upstream) + " · " + count
 }
 
 // repoInfo is the fixed block above the commit list in the Repository view.
@@ -1245,6 +1328,7 @@ func (m *Model) health() health {
 func (m *Model) statusLine() string {
 	var left string
 	h := m.health()
+	stale, staleSt := m.staleNote()
 	switch {
 	case m.flash != "":
 		left = m.st.accent.Render(" " + clean(m.flash))
@@ -1258,6 +1342,8 @@ func (m *Model) statusLine() string {
 		left = m.st.muted.Render(" " + h.notes[0])
 	case len(h.notes) > 1:
 		left = m.st.muted.Render(fmt.Sprintf(" %d repositories have no origin remote yet (not pushed to GitHub)", len(h.notes)))
+	case stale != "":
+		left = staleSt.Render(stale)
 	case m.opts.Demo:
 		left = m.st.warn.Render(" Demo mode: fixture data only, no repositories are read")
 	case m.opts.ConfigErr != nil:

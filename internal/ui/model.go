@@ -45,8 +45,9 @@ const (
 )
 
 const (
-	logDepth   = 100
-	seqTimeout = time.Second
+	logDepth    = 100
+	incomingCap = 50 // the Repository view's heading still counts every incoming commit
+	seqTimeout  = time.Second
 )
 
 type seqExpiredMsg struct{ gen int }

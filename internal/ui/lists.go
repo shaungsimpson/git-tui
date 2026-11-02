@@ -275,7 +275,16 @@ func (m *Model) repoCommits() []gitx.Commit {
 	if r == nil {
 		return nil
 	}
-	return m.commitsMatching(viewRepo, r.log.val)
+	return slices.Concat(m.commitsMatching(viewRepo, r.incoming.val), m.commitsMatching(viewRepo, r.log.val))
+}
+
+// incomingRows is how many rows at the top of the Repository list are incoming commits.
+func (m *Model) incomingRows() int {
+	r := m.selected()
+	if r == nil {
+		return 0
+	}
+	return len(m.commitsMatching(viewRepo, r.incoming.val))
 }
 
 func (m *Model) tagList() []gitx.Tag {

@@ -9,6 +9,7 @@ import (
 	"image"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +48,8 @@ type Summary struct {
 	Untracked  int
 	Conflicted int
 	Last       *Commit
+	Fetched    time.Time // when the clone last fetched; zero when it has not since it was cloned
+	UpstreamID string    // the commit the upstream branch was at in the last fetch; empty without one
 }
 
 // Clean reports whether the worktree has no changes.
@@ -60,6 +63,8 @@ type Source interface {
 	Log(ctx context.Context, repo, dir string, n int) ([]Commit, error)
 	Tags(ctx context.Context, repo, dir string) ([]Tag, error)
 	Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error)
+	Incoming(ctx context.Context, repo, dir string, n int) ([]Commit, error) // on the upstream branch, not HEAD
+	Unfetched(ctx context.Context, dir, base, branch string) (int, error)    // on GitHub's branch, after base
 	PullRequests(ctx context.Context, repo, dir string) ([]PR, error)
 	Deployments(ctx context.Context, repo, dir string) ([]Deployment, error)
 	DeployRuns(ctx context.Context, repo, dir string) ([]Run, error)
@@ -131,6 +136,24 @@ func (g Git) Summary(ctx context.Context, repo, dir string) (Summary, error) {
 		return Summary{}, err
 	}
 	s := ParseStatus(out)
+	args := []string{"rev-parse", "--git-common-dir"} // FETCH_HEAD lives there, shared by a clone's worktrees
+	if s.HasAB {
+		args = append(args, "@{upstream}")
+	}
+	// shortcut: a failed rev-parse only leaves the fetch time and upstream commit unknown; show it if that confuses.
+	if out, err := g.run(ctx, dir, args...); err == nil {
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		common := lines[0]
+		if !filepath.IsAbs(common) {
+			common = filepath.Join(dir, common)
+		}
+		if fi, err := os.Stat(filepath.Join(common, "FETCH_HEAD")); err == nil {
+			s.Fetched = fi.ModTime()
+		}
+		if len(lines) > 1 {
+			s.UpstreamID = lines[1]
+		}
+	}
 	if s.Head == "" {
 		return s, nil // unborn branch: nothing to log yet
 	}
@@ -207,6 +230,15 @@ func (g Git) Tags(ctx context.Context, repo, dir string) ([]Tag, error) {
 // "refs/tags/v1" or a commit ID; --end-of-options stops either being read as an option.
 func (g Git) Compare(ctx context.Context, repo, dir, base, head string) ([]Commit, error) {
 	out, err := g.run(ctx, dir, "log", "-z", logFormat, "--end-of-options", base+".."+head, "--")
+	if err != nil {
+		return nil, err
+	}
+	return ParseLog(repo, out), nil
+}
+
+// Incoming lists up to n commits on the upstream branch, as of the last fetch, that HEAD does not have.
+func (g Git) Incoming(ctx context.Context, repo, dir string, n int) ([]Commit, error) {
+	out, err := g.run(ctx, dir, "log", "-z", "-n", strconv.Itoa(n), logFormat, "HEAD..@{upstream}", "--")
 	if err != nil {
 		return nil, err
 	}

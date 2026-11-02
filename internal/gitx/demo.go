@@ -88,9 +88,14 @@ func (Demo) Summary(_ context.Context, repo, dir string) (Summary, error) {
 		return Summary{}, err
 	}
 	last := demoCommits(repo, 1, 0)[0]
-	s := Summary{Branch: "main", Head: last.Hash, Upstream: "origin/main", HasAB: true, Last: &last}
+	s := Summary{Branch: "main", Head: last.Hash, Upstream: "origin/main", HasAB: true, Last: &last, UpstreamID: last.Hash}
+	// Fresh, a few days old and weeks old, so every shade of the fetch age shows.
+	s.Fetched = demoBase.Add(-map[string]time.Duration{"frontend": 3 * 24 * time.Hour, "personal-site": 12 * 24 * time.Hour}[repo] - 2*time.Hour)
 	if demoUnpushed(dir) {
-		s.Upstream, s.HasAB = "", false
+		s.Upstream, s.HasAB, s.UpstreamID, s.Fetched = "", false, "", time.Time{}
+	}
+	if repo == "backend" {
+		s.Behind = demoIncoming
 	}
 	if repo == "frontend" {
 		s.Branch, s.Upstream, s.Ahead, s.Behind = "feature/dark-mode-v9", "origin/feature/dark-mode-v9", 2, 1
@@ -133,6 +138,31 @@ func (Demo) Compare(_ context.Context, repo, _, base, head string) ([]Commit, er
 		return nil, nil
 	}
 	return demoCommits(repo, (h-b)*4, (9-h)*4), nil
+}
+
+// demoIncoming is how many commits backend's last fetch saw that it has not pulled; GitHub has demoUnfetched more.
+const demoIncoming, demoUnfetched = 3, 5
+
+func (Demo) Incoming(_ context.Context, repo, dir string, n int) ([]Commit, error) {
+	s, err := Demo{}.Summary(context.Background(), repo, dir)
+	if err != nil {
+		return nil, err
+	}
+	commits := demoCommits(repo, min(n, s.Behind), 50) // offset past the local history, so the hashes differ
+	for i := range commits {
+		commits[i].When = s.Fetched.Add(-time.Duration(i+1) * 90 * time.Minute) // pushed before the fetch saw them
+	}
+	return commits, nil
+}
+
+func (Demo) Unfetched(_ context.Context, dir, _, branch string) (int, error) {
+	if demoUnpushed(dir) {
+		return 0, ErrNoOrigin
+	}
+	if strings.HasSuffix(dir, "/backend") && branch == "main" {
+		return demoUnfetched, nil
+	}
+	return 0, nil
 }
 
 func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {

@@ -120,6 +120,28 @@ func GHToken(ctx context.Context) (string, error) {
 var ErrNoOrigin = errors.New("no origin remote yet (not pushed to GitHub)")
 
 // Slug is the GitHub "owner/name" of the repository's origin remote.
+// Unfetched counts the commits on origin's branch on GitHub after base, the commit the last fetch saw there.
+// Both go into a GitHub API path, so base must be a commit ID and branch a plain branch name.
+func (g Git) Unfetched(ctx context.Context, dir, base, branch string) (int, error) {
+	if !IsCommitID(base) || !plainBranch(branch) {
+		return 0, fmt.Errorf("cannot compare %q with branch %q on GitHub", base, branch)
+	}
+	slug, err := g.Slug(ctx, dir)
+	if err != nil {
+		return 0, err
+	}
+	out, err := command(ctx, dir, ghTimeout, "gh", "api", "repos/"+slug+"/compare/"+base+"..."+branch, "--jq", ".ahead_by")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(out))
+}
+
+// plainBranch reports a branch name of letters, digits and . _ - / only, with no "..", safe in a URL path.
+func plainBranch(b string) bool {
+	return b != "" && !strings.Contains(b, "..") && strings.Trim(b, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/") == ""
+}
+
 func (g Git) Slug(ctx context.Context, dir string) (string, error) {
 	url, err := g.run(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {

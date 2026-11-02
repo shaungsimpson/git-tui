@@ -28,7 +28,7 @@ var clock = time.Now
 // ageOf is how long data of a kind stays fresh.
 func ageOf(k dataKind) time.Duration {
 	switch k {
-	case kindPRs, kindDeps, kindRuns:
+	case kindPRs, kindDeps, kindRuns, kindUnfetched:
 		return githubAge
 	case kindViewer:
 		return viewerAge
@@ -89,6 +89,8 @@ func (m *Model) wanted() []want {
 		if m.repo > 0 {
 			add(kindSummary, m.repo-1)
 			add(kindLog, m.repo-1)
+			add(kindIncoming, m.repo-1)
+			add(kindUnfetched, m.repo-1)
 		}
 	case viewTags:
 		if m.repo > 0 {
@@ -135,6 +137,10 @@ func (m *Model) times(w want) (at time.Time, loading bool) {
 		return r.gh.runs.at, r.gh.runs.loading
 	case kindTags:
 		return r.tags.at, r.tags.loading
+	case kindIncoming:
+		return r.incoming.at, r.incoming.loading
+	case kindUnfetched:
+		return r.unfetched.at, r.unfetched.loading
 	}
 	return time.Time{}, false // a kind missing here shows no age rather than another kind's
 }
