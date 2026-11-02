@@ -340,6 +340,9 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	}
 
 	press(m, "g", "p")
+	if !strings.Contains(ansi.Strip(m.render()), "Preview") {
+		t.Fatal("demo should show the preview pane beside the list at 140 columns")
+	}
 	colours := map[any]bool{}
 	for _, p := range m.prList() {
 		colours[m.authorStyle(p.Author, true).GetForeground()] = true
@@ -357,7 +360,11 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if page := m.render(); !strings.ContainsRune(page, kitty.Placeholder) || !strings.Contains(ansi.Strip(page), "Details · Pull requests") {
 		t.Fatal("demo PRs should draw their pictures on the detail page")
 	}
-	press(m, "esc")
+	press(m, "J", "d")
+	if m.cursor[viewPRs] != 1 || !m.diff.open {
+		t.Fatalf("on the page, J should step to the next PR and d open its diff: cursor %d", m.cursor[viewPRs])
+	}
+	press(m, "esc", "K", "esc")
 	press(m, "g", "d")
 	m.cursor[viewRuns] = slices.IndexFunc(m.runList(), func(r gitx.Run) bool { return r.Conclusion == "cancelled" })
 	drain(m, m.ensure(false))
@@ -437,11 +444,11 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 		if m.profile != mode {
 			t.Fatalf("b should cycle to %s", profileNames[mode])
 		}
-		if !strings.Contains(ansi.Strip(m.render()), "Update v0.5.0") {
+		if !strings.Contains(ansi.Strip(m.render()), "Update "+gitx.DemoLatest) {
 			t.Fatalf("demo should show the newer release in the %s header", profileNames[mode])
 		}
 	}
-	if r := m.releaseRow(); r.state != "update available" || !strings.Contains(strings.Join(r.detail, "\n"), "@v0.5.0") {
+	if r := m.releaseRow(); r.state != "update available" || !strings.Contains(strings.Join(r.detail, "\n"), "@"+gitx.DemoLatest) {
 		t.Fatalf("Connections should say how to install the newer release: %+v", r)
 	}
 }

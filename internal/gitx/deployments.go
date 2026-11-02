@@ -34,9 +34,9 @@ func (g Git) Deployments(ctx context.Context, repo, dir string) ([]Deployment, e
 		return nil, err
 	}
 	owner, name, _ := strings.Cut(slug, "/")
-	// shortcut: first 50 environments per repository; page if a repository has more.
+	// shortcut: first 100 environments per repository (one GraphQL page); page with a cursor if a repository has more.
 	out, err := command(ctx, dir, ghTimeout, "gh", "api", "graphql", "-f", "owner="+owner, "-f", "name="+name,
-		"-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){environments(first:50){nodes{name}}}}",
+		"-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){environments(first:100){nodes{name}}}}",
 		"--jq", ".data.repository.environments.nodes[].name")
 	if err != nil {
 		return nil, err
@@ -56,8 +56,8 @@ func (g Git) Deployments(ctx context.Context, repo, dir string) ([]Deployment, e
 	for i, env := range envs {
 		args = append(args, "-f", fmt.Sprintf("e%d=%s", i, env))
 		vars = append(vars, fmt.Sprintf("$e%d:String!", i))
-		// shortcut: newest 20 attempts per environment; an environment with 20 failures in a row shows no deployed commit.
-		fields += fmt.Sprintf(" e%d:deployments(environments:[$e%d],first:20,orderBy:{field:CREATED_AT,direction:DESC}){nodes{state commitOid createdAt ref{name}}}", i, i)
+		// shortcut: newest 50 attempts per environment; an environment with 50 failures in a row shows no deployed commit.
+		fields += fmt.Sprintf(" e%d:deployments(environments:[$e%d],first:50,orderBy:{field:CREATED_AT,direction:DESC}){nodes{state commitOid createdAt ref{name}}}", i, i)
 	}
 	query := fmt.Sprintf("query(%s){repository(owner:$owner,name:$name){%s}}", strings.Join(vars, ","), fields)
 	out, err = command(ctx, dir, ghTimeout, "gh", append(args, "-f", "query="+query)...)

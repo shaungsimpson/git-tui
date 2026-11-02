@@ -19,3 +19,19 @@ func TestParseRelease(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoVersions(t *testing.T) {
+	for _, tc := range []struct{ stamp, running, latest string }{
+		{"v0.10.0", "v0.10.0", "v0.11.0"},                               // go install …@v0.10.0, or a clean checkout on the tag
+		{"v0.10.1-0.20261102034117-5711216da85a", "v0.10.0", "v0.11.0"}, // a checkout after the tag
+		{"v0.10.1-0.20261102034117-5711216da85a+dirty", "v0.10.0", "v0.11.0"},
+		{"v0.11.0-rc.1", "v0.11.0", "v0.12.0"},
+		{"(devel)", "v0.4.1", "v0.5.0"},
+		{"", "v0.4.1", "v0.5.0"},
+		{"v0.0.0-20261102034117-5711216da85a", "v0.4.1", "v0.5.0"}, // no tag yet
+	} {
+		if b, l := demoVersions(tc.stamp); b.Version != tc.running || l != tc.latest {
+			t.Errorf("%q: got %s and %s, want %s and %s", tc.stamp, b.Version, l, tc.running, tc.latest)
+		}
+	}
+}

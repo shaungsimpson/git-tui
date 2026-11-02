@@ -61,7 +61,7 @@ type Options struct {
 	ConfigErr    error
 	Demo         bool
 	Images       bool // the terminal draws Kitty graphics placeholders
-	Tabs         bool // the terminal can open a tab for a repository (Ghostty on macOS, outside tmux)
+	Tabs         bool // the terminal can open a tab for a repository (Ghostty on macOS or Windows Terminal on WSL, outside tmux)
 	Profile      Profile
 	UTC          bool          // show times in UTC
 	StatePath    string        // where toggles are remembered; empty in demo mode and tests
@@ -550,7 +550,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 			return nil
 		}
 		if abs, err := filepath.Abs(dir); err == nil {
-			dir = abs // Ghostty would read a relative path from its own directory, not ours
+			dir = abs // the terminal would read a relative path from its own directory, not ours
 		}
 		return func() tea.Msg { return tabMsg{o.what, openTab(dir, o.mode)} }
 	}

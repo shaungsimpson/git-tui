@@ -47,7 +47,10 @@ type PRFile struct {
 	Additions, Deletions int
 }
 
-const ghTimeout = 20 * time.Second // network call, unlike the local git commands
+const (
+	ghTimeout     = 20 * time.Second // network call, unlike the local git commands
+	ghListTimeout = 60 * time.Second // a long list that gh fetches in several pages, one after another
+)
 
 // PullRequests lists open pull requests for the repository's origin remote using gh.
 func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
@@ -58,11 +61,11 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	// GitHub search counts team requests too; a request is cleared once the viewer reviews.
 	// Newest first, like the list below, so every listed PR that is requested falls inside the limit.
 	mine := background(func() (string, error) {
-		return command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
+		return command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
 			"--search", "review-requested:@me sort:created-desc", "--json", "number")
 	})
-	// shortcut: only the 100 most recently created open PRs per repository; page if a repository has more.
-	out, err := command(ctx, dir, ghTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "100",
+	// shortcut: only the 300 most recently created open PRs per repository; raise it if a repository has more.
+	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
 		"--json", "number,title,author,headRefName,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,body,files")
 	if err != nil {
 		return nil, err

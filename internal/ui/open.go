@@ -74,6 +74,37 @@ const ghosttyOpen = `on run argv
 	end tell
 end run`
 
+// wtSplits are Windows Terminal's split-pane flags: a vertical divider puts the new pane to the right.
+var wtSplits = map[string]string{"right": "-V", "down": "-H"}
+
+// tabCommand is the program and arguments that open a tab or split at dir: Windows Terminal on WSL (distro set),
+// otherwise Ghostty's AppleScript.
+func tabCommand(dir, mode, distro string) (string, []string, error) {
+	if distro == "" {
+		return "osascript", []string{"-e", ghosttyOpen, dir, mode}, nil
+	}
+	if strings.Contains(dir, ";") { // wt.exe splits its arguments into commands at each ;
+		return "", nil, errors.New("a path containing ; cannot open in Windows Terminal")
+	}
+	args := []string{"-w", "0", "new-tab"}
+	if mode != "tab" {
+		args = []string{"-w", "0", "split-pane", wtSplits[mode]}
+	}
+	return "wt.exe", append(args, "wsl.exe", "-d", distro, "--cd", dir), nil
+}
+
+// CanOpenTabs reports whether t can open a tab here: Ghostty on macOS, or Windows Terminal on WSL, outside tmux.
+func CanOpenTabs(getenv func(string) string) bool {
+	if getenv("TMUX") != "" {
+		return false // the tab would open in the terminal, not in tmux
+	}
+	if runtime.GOOS == "darwin" {
+		return getenv("TERM_PROGRAM") == "ghostty"
+	}
+	_, err := exec.LookPath("wt.exe")
+	return err == nil && getenv("WSL_DISTRO_NAME") != "" && getenv("WT_SESSION") != "" // WT_SESSION: inside Windows Terminal
+}
+
 // openModes names what each mode opens, for messages.
 var openModes = map[actionID]struct{ mode, what string }{
 	actTab:        {"tab", "a tab"},
@@ -85,7 +116,11 @@ var openModes = map[actionID]struct{ mode, what string }{
 var openTab = func(dir, mode string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute) // long enough to answer a macOS permission prompt
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "osascript", "-e", ghosttyOpen, dir, mode).CombinedOutput()
+	name, args, err := tabCommand(dir, mode, os.Getenv("WSL_DISTRO_NAME"))
+	if err != nil {
+		return err
+	}
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	if err != nil && len(out) > 0 {
 		return errors.New(strings.TrimSpace(string(out)))
 	}

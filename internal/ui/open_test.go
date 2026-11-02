@@ -92,6 +92,48 @@ func TestOpenTab(t *testing.T) {
 	}
 }
 
+func TestTabCommand(t *testing.T) {
+	if name, args, err := tabCommand("/r/backend", "right", ""); err != nil || name != "osascript" || !slices.Equal(args[2:], []string{"/r/backend", "right"}) {
+		t.Fatalf("macOS: %s %q %v", name, args, err)
+	}
+	for mode, want := range map[string]string{
+		"tab":   "-w 0 new-tab wsl.exe -d Ubuntu --cd /r/my backend",
+		"right": "-w 0 split-pane -V wsl.exe -d Ubuntu --cd /r/my backend",
+		"down":  "-w 0 split-pane -H wsl.exe -d Ubuntu --cd /r/my backend",
+	} {
+		if name, args, err := tabCommand("/r/my backend", mode, "Ubuntu"); err != nil || name != "wt.exe" || strings.Join(args, " ") != want {
+			t.Errorf("WSL %s: %s %q %v", mode, name, args, err)
+		}
+	}
+	if _, _, err := tabCommand("/r/a;new-tab cmd.exe", "tab", "Ubuntu"); err == nil {
+		t.Fatal("a ; would start another Windows Terminal command, so refuse it")
+	}
+}
+
+func TestCanOpenTabs(t *testing.T) {
+	env := map[string]string{"TERM_PROGRAM": "ghostty", "WSL_DISTRO_NAME": "Ubuntu", "WT_SESSION": "abc"}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "wt.exe"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if !CanOpenTabs(func(k string) string { return env[k] }) {
+		t.Fatal("Ghostty on macOS, or Windows Terminal on WSL, can open tabs")
+	}
+	env["TMUX"] = "/tmp/tmux"
+	if CanOpenTabs(func(k string) string { return env[k] }) {
+		t.Fatal("not inside tmux")
+	}
+	if runtime.GOOS == "darwin" {
+		return
+	}
+	delete(env, "TMUX")
+	delete(env, "WT_SESSION")
+	if CanOpenTabs(func(k string) string { return env[k] }) {
+		t.Fatal("WSL outside Windows Terminal cannot open its tabs")
+	}
+}
+
 func TestBrowserOpener(t *testing.T) {
 	if err := startBounded(exec.Command("sh", "-c", "exit 3"), time.Second); err == nil {
 		t.Fatal("an opener that fails should say so")

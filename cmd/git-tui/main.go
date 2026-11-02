@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -68,7 +67,7 @@ func main() {
 
 	// Demo mode never touches the network: its avatar and PR pictures are drawn from fixtures.
 	opts := ui.Options{Demo: *demo, Images: termimg.Supported(os.Getenv),
-		Tabs: runtime.GOOS == "darwin" && os.Getenv("TERM_PROGRAM") == "ghostty" && os.Getenv("TMUX") == "", Profile: profile, UTC: state.UTC,
+		Tabs: ui.CanOpenTabs(os.Getenv), Profile: profile, UTC: state.UTC,
 		StatePath: statePath, Sorts: state.Sorts, Version: v, Tools: map[string]string{}, Executable: exe, Build: build, Source: src, ReleaseCache: cache}
 	if cache != "" {
 		opts.Release = update.LoadCache(cache, time.Now()) // an unreadable cache only means checking again

@@ -259,9 +259,25 @@ func (Demo) Slug(_ context.Context, dir string) (string, error) {
 	return "acme/" + dir[strings.LastIndex(dir, "/")+1:], nil
 }
 
-// DemoBuild is the release demo mode pretends to run, one behind Demo.LatestRelease, so the update badge shows.
-var DemoBuild = update.Build{Kind: update.Release, Module: update.Module, Version: "v0.4.1", Sum: "h1:demo"}
+// DemoBuild is the release demo mode pretends to run, the newest tag this binary was built from. DemoLatest is the
+// next minor release, so screenshots taken in a pull request before its tag offer the version about to ship.
+var DemoBuild, DemoLatest = demoVersions(update.Current().Version)
+
+// demoVersions reads Go's stamped version: vX.Y.Z on a tag, or a pseudo-version vX.Y.(Z+1)-0.… after tag vX.Y.Z.
+// Builds with no tag behind them, such as tests, get fixed versions.
+func demoVersions(v string) (update.Build, string) {
+	b := update.Build{Kind: update.Release, Module: update.Module, Version: "v0.4.1", Sum: "h1:demo"}
+	var major, minor, patch int
+	if n, _ := fmt.Sscanf(v, "v%d.%d.%d", &major, &minor, &patch); n != 3 || strings.HasPrefix(v, "v0.0.0-") {
+		return b, "v0.5.0"
+	}
+	if strings.Contains(v, "-") {
+		patch = max(patch-1, 0) // a prerelease such as v0.11.0-rc.1 has no tag below it to step back to
+	}
+	b.Version = fmt.Sprintf("v%d.%d.%d", major, minor, patch)
+	return b, fmt.Sprintf("v%d.%d.0", major, minor+1)
+}
 
 func (Demo) LatestRelease(context.Context) (update.Latest, error) {
-	return update.Latest{Version: "v0.5.0"}, nil
+	return update.Latest{Version: DemoLatest}, nil
 }

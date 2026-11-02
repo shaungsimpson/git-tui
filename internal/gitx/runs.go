@@ -77,8 +77,8 @@ func (g Git) DeployRuns(ctx context.Context, repo, dir string) ([]Run, error) {
 			"-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){deployments(first:50,orderBy:{field:CREATED_AT,direction:DESC}){nodes{latestStatus{logUrl}}}}}",
 			"--jq", ".data.repository.deployments.nodes[].latestStatus.logUrl // empty")
 	})
-	// shortcut: the newest 100 runs of every workflow; deploy runs older than that are not listed.
-	runs, err := command(ctx, dir, ghTimeout, "gh", "run", "list", "--repo", slug, "--limit", "100", "--json",
+	// shortcut: the newest 300 runs of every workflow; deploy runs older than that are not listed.
+	runs, err := command(ctx, dir, ghListTimeout, "gh", "run", "list", "--repo", slug, "--limit", "300", "--json",
 		"databaseId,workflowName,displayTitle,event,headBranch,headSha,status,conclusion,startedAt,updatedAt,url")
 	if err != nil {
 		return nil, err
