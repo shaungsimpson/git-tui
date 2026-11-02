@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"image/color"
 	"regexp"
 	"slices"
 	"strconv"
@@ -382,4 +383,21 @@ func BenchmarkManyRepos(b *testing.B) {
 			_ = m.render()
 		}
 	})
+}
+
+func TestSelectedRowKeepsColours(t *testing.T) {
+	m := setup(t, demoOpts(), 120, 30)
+	segs := []seg{{"0a1b2c3  ", m.st.id}, {"Fix rounding", m.st.text}}
+	for _, c := range []struct {
+		focus paneID
+		bg    color.Color
+		bold  bool
+	}{{paneMain, m.st.selBg, true}, {paneSidebar, m.st.selDim, false}} {
+		m.focus = c.focus
+		line := m.row(segs, 40, true, false)[0]
+		want := m.st.id.Background(c.bg).Bold(c.bold).Render("0a1b2c3  ")
+		if !strings.Contains(line, want) || lipgloss.Width(line) != 40 {
+			t.Errorf("focus %v: the selected row should keep the ID colour on its background and fill the width:\n%q", c.focus, line)
+		}
+	}
 }

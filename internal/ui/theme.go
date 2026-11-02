@@ -11,7 +11,9 @@ import (
 )
 
 type styles struct {
-	bg, fg                                 color.Color
+	bg, fg color.Color
+	// The selected row's background, in the focused pane or another.
+	selBg, selDim                          color.Color
 	text, muted, accent, title, titleFocus lipgloss.Style
 	selected, marker, sep, ok, warn, bad   lipgloss.Style
 	badge, tab, tabActive, key             lipgloss.Style
@@ -29,7 +31,8 @@ func newStyles(dark bool) styles {
 		fg     = c("#23262b", "#d8d9dc")
 		muted  = c("#6b6f76", "#8a8d93")
 		accent = c("#1f7a68", "#5fb3a1")
-		selBg  = c("#e2e6e4", "#2b3033")
+		selBg  = c("#d3ebe4", "#0c0d0f") // a step from the background: a pale accent teal in light mode, nearer black in dark
+		selDim = c("#e9f4f0", "#141518")
 		border = c("#d4d6d9", "#363a3f")
 		ok     = c("#2f7d32", "#7cc47f")
 		warn   = c("#8a5d00", "#e0b45c")
@@ -39,7 +42,7 @@ func newStyles(dark bool) styles {
 	)
 	s := lipgloss.NewStyle
 	return styles{
-		bg: bg, fg: fg,
+		bg: bg, fg: fg, selBg: selBg, selDim: selDim,
 		text:       s().Foreground(fg),
 		muted:      s().Foreground(muted),
 		accent:     s().Foreground(accent),

@@ -405,17 +405,18 @@ func (m *Model) row(segs []seg, w int, selected, stacked bool) []string {
 		if selected && i == 0 {
 			lead = "> "
 		}
-		if selected {
-			var b strings.Builder
-			b.WriteString(lead)
-			for _, s := range l {
-				b.WriteString(s.s)
-			}
-			st := m.st.marker
+		if selected { // a background across the row, keeping each part's colour; fainter when the list lacks focus
+			bg, bold := m.st.selDim, false
 			if m.focus == paneMain {
-				st = m.st.selected.Width(w)
+				bg, bold = m.st.selBg, true
 			}
-			out[i] = st.Render(ansi.Truncate(b.String(), w, "…"))
+			on := func(st lipgloss.Style) lipgloss.Style { return st.Background(bg).Bold(bold) }
+			line := on(m.st.marker).Render(lead)
+			for _, s := range l {
+				line += on(s.st).Render(s.s)
+			}
+			line = ansi.Truncate(line, w, on(m.st.text).Render("…"))
+			out[i] = line + on(m.st.text).Render(strings.Repeat(" ", max(0, w-lipgloss.Width(line))))
 			continue
 		}
 		parts := []string{lead}
