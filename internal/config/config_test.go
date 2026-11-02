@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -108,14 +109,14 @@ func TestResolveOrder(t *testing.T) {
 
 func TestStateRoundTrip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "git-tui", "state.json")
-	if s, err := LoadState(p); err != nil || s != (State{}) {
+	if s, err := LoadState(p); err != nil || !reflect.DeepEqual(s, State{}) {
 		t.Fatalf("a missing file is the zero state: %+v, %v", s, err)
 	}
-	want := State{UTC: true, Profile: "ascii"}
+	want := State{UTC: true, Profile: "ascii", Sorts: map[string]string{"prs": "status"}}
 	if err := SaveState(p, want); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := LoadState(p); err != nil || got != want {
+	if got, err := LoadState(p); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	if entries, _ := os.ReadDir(filepath.Dir(p)); len(entries) != 1 {

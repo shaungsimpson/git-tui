@@ -10,9 +10,10 @@ import (
 // State is what the app remembers between runs. It lives apart from the configuration, which holds the
 // repository list only.
 type State struct {
-	UTC      bool   `json:"utc"`
-	Profile  string `json:"profile,omitempty"`
-	ScanRoot string `json:"scanRoot,omitempty"` // where adding repositories last looked
+	UTC      bool              `json:"utc"`
+	Profile  string            `json:"profile,omitempty"`
+	ScanRoot string            `json:"scanRoot,omitempty"` // where adding repositories last looked
+	Sorts    map[string]string `json:"sorts,omitempty"`    // each list's sort, by view
 }
 
 // StatePath is $XDG_STATE_HOME/git-tui/state.json, which defaults to ~/.local/state/git-tui/state.json.

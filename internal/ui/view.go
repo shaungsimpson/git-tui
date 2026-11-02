@@ -201,6 +201,25 @@ func (m *Model) repoLabel() string {
 	return "All repositories"
 }
 
+// goLetter is where in a view's name the letter its g shortcut uses sits, or -1.
+func goLetter(v viewID) int {
+	for _, g := range goKeys {
+		if g.view == v {
+			return strings.Index(strings.ToLower(viewNames[v]), g.key)
+		}
+	}
+	return -1
+}
+
+// tabLabel is an unselected tab with its g letter underlined, so the tabs show their own shortcuts.
+func (m *Model) tabLabel(v viewID) string {
+	name, i := viewNames[v], goLetter(v)
+	if i < 0 {
+		return m.st.tab.Render(name)
+	}
+	return m.st.tab.Render(name[:i]) + m.st.tab.Underline(true).Render(name[i:i+1]) + m.st.tab.Render(name[i+1:])
+}
+
 func (m *Model) header() string {
 	left := m.st.marker.Render(" git ")
 	if m.opts.Demo {
@@ -211,7 +230,7 @@ func (m *Model) header() string {
 		if v == m.view {
 			tabs = append(tabs, m.st.tabActive.Render(viewNames[v]))
 		} else {
-			tabs = append(tabs, m.st.tab.Render(viewNames[v]))
+			tabs = append(tabs, m.tabLabel(v))
 		}
 	}
 	fresh := m.freshness()
@@ -668,9 +687,12 @@ func (m *Model) picLines(l termimg.Link) []string {
 
 // mainContent returns the pane title and a row builder for the current list.
 func (m *Model) mainContent(w int) (string, func(int) []seg) {
-	filter := ""
+	filter := "" // the sort, when not the default, and the filter
+	if name := m.sortName(m.view); name != "" && m.sorts[m.view] > 0 {
+		filter = " · by " + name
+	}
 	if f := m.filters[m.view]; f != "" {
-		filter = " · filter: " + clean(f)
+		filter += " · filter: " + clean(f)
 	}
 	if m.cmpOpen() {
 		cs := m.cmp.res.val
@@ -1046,7 +1068,7 @@ func (m *Model) helpLines() []string {
 	var keys []string
 	for _, a := range actions {
 		h := a.key.Help()
-		if h.Key == "" || !a.available(m) {
+		if h.Key == "" || !a.available(m) || a.id == actHelp { // the footer says how to close help
 			continue
 		}
 		// 9 fits "shift+tab"; with the longest description a column is 30 cells, half the 60-column minimum.

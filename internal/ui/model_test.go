@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -185,21 +186,25 @@ func TestTogglesAreRemembered(t *testing.T) {
 	o.Profile = ProfileFull
 	o.StatePath = t.TempDir() + "/state.json"
 	m := setup(t, o, 120, 30)
-	press(m, "u", "b")
+	press(m, "u", "b", "g", "p", "s")
 	got, err := config.LoadState(o.StatePath)
-	if err != nil || got != (config.State{UTC: true, Profile: "ascii"}) {
+	if want := (config.State{UTC: true, Profile: "ascii", Sorts: map[string]string{"prs": "status"}}); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("saved %+v, %v", got, err)
 	}
-	o.UTC, o.Profile = got.UTC, ProfileASCII
-	if m := setup(t, o, 120, 30); !m.utc || m.profile != ProfileASCII {
-		t.Fatal("a new run starts from the saved toggles")
+	o.UTC, o.Profile, o.Sorts = got.UTC, ProfileASCII, got.Sorts
+	if m := setup(t, o, 120, 30); !m.utc || m.profile != ProfileASCII || m.sortName(viewPRs) != "status" {
+		t.Fatal("a new run starts from the saved toggles and sorts")
+	}
+	o.Sorts = map[string]string{"prs": "no-such-sort"}
+	if m := setup(t, o, 120, 30); m.sortName(viewPRs) != "updated" {
+		t.Fatal("an unknown saved sort keeps the default")
 	}
 
 	// A run started with -profile off must not save that override when another toggle changes.
 	o.Profile = ProfileOff
 	m = setup(t, o, 120, 30)
 	press(m, "u")
-	if got, _ := config.LoadState(o.StatePath); got != (config.State{UTC: false, Profile: "ascii"}) {
+	if got, _ := config.LoadState(o.StatePath); got.UTC || got.Profile != "ascii" {
 		t.Fatalf("pressing u saved %+v; the -profile flag should not be remembered", got)
 	}
 }
@@ -249,6 +254,11 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "Why it stopped") || !strings.Contains(d, "higher priority") {
 		t.Fatalf("demo should show why a deploy run was cancelled:\n%s", d)
 	}
+	press(m, "g", "p", "s")
+	if title, _ := m.mainContent(140); !strings.Contains(title, "by status") || !m.prList()[0].ForMe {
+		t.Fatalf("demo PRs by status should start with a review request: %q", title)
+	}
+	m.sorts[viewPRs] = 0
 	press(m, "g", "o", "t")
 	if !strings.Contains(m.flash, "Demo: would open a tab in") {
 		t.Fatalf("demo should show what t does: %q", m.flash)

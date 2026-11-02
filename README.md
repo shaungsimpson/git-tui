@@ -115,7 +115,7 @@ You can configure two folders cloned from the same GitHub repository, such as a 
 
 ## Remembered preferences
 
-The time zone (`u`), the profile header style (`b`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the profile header style (`b`), each list's sort (`s`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
@@ -135,6 +135,18 @@ The time zone (`u`), the profile header style (`b`) and the folder adding reposi
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
 | Deploys     | Recent deploy workflow runs: status, duration, branch and link. A failed or cancelled run says why it stopped, as GitHub recorded it. While a run is queued or running, the view reloads every 10 seconds by itself |
 | Connections | What is available: local Git, the config and each configured repository (managed here, see [Managing repositories](#managing-repositories)), GitHub pull requests, deployments and deploy runs (from what those views last loaded), and git-tui itself: its version and kind of build, where it is installed, the latest release and how to update it (see [Updates](#updates)) |
+
+Lists start newest first. `s` cycles the current list's sort; within each group the rows stay newest first, and the pane title shows any sort other than the default:
+
+| View          | Sorts                                     |
+|---------------|-------------------------------------------|
+| Activity      | date, repository, author                  |
+| Pull requests | updated, status, repository, author       |
+| Repository    | date, author                              |
+| Environments  | deployed, repository, environment         |
+| Deploys       | started, status, repository, workflow     |
+
+Pull requests by status puts what needs you first: your review requests, then your PRs ready to merge, failing checks, changes requested, awaiting review, approved, and drafts last. Deploys by status lists running runs, then failed or cancelled ones, then successes. Overview keeps your order (`K`/`J`) and Tags stay newest first.
 
 In Pull requests, a green **✔** in the column after the check status marks your own PR that is ready to merge: approved, every check passing, and not a draft. Details says "Ready: ✔ approved, checks passing". Merge conflicts are not checked.
 
@@ -188,8 +200,9 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `Enter`           | Open or inspect the selected item (in Tags: choose the base tag, then the head tag; in Environments: list commits not yet deployed) |
 | `Esc`             | Close details, the comparison, the base selection or the filter            |
 | `/`               | Filter the current list (`Enter` applies, `Esc` cancels). In Pull requests, `is:review` keeps your review requests and `is:ready` your PRs ready to merge |
+| `s`               | Sort the current list: Activity, Pull requests, Repository, Environments and Deploys (see [Views](#views)). Remembered between runs |
 | `n`               | Go to Pull requests across all repositories, filtered to your review requests (`is:review`); again for your PRs ready to merge (`is:ready`); again to show every PR |
-| `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout) |
+| `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout). Each tab underlines its letter |
 | `Ctrl+R`          | Refresh everything on screen now, including failed loads; in Connections, also check for a newer release |
 | `?`               | Contextual shortcut help                                                   |
 | `F2`              | Toggle the dark and light themes                                           |

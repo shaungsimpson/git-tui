@@ -240,11 +240,8 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		}
 		cmd = tea.Batch(cmd, m.loadWhy(false)) // the selected run may have just stopped
 	}
-	if keys := m.rowKeys(m.view); keep != "" {
-		if i := slices.Index(keys, keep); i >= 0 {
-			m.cursor[m.view] = i
-			m.keepVisible(m.view, &m.cursor[m.view], &m.offset[m.view], len(keys))
-		}
+	if keep != "" {
+		m.follow(keep)
 	}
 	m.clampAll()
 	return cmd

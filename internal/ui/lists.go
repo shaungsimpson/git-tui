@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"slices"
 	"strconv"
 	"strings"
@@ -97,6 +98,65 @@ func match(filter string, fields ...string) bool {
 	return false
 }
 
+// sortsOf is how each sortable list can be ordered; the first is its default, newest first.
+var sortsOf = map[viewID][]string{
+	viewActivity: {"date", "repository", "author"},
+	viewPRs:      {"updated", "status", "repository", "author"},
+	viewRepo:     {"date", "author"},
+	viewEnvs:     {"deployed", "repository", "environment"},
+	viewRuns:     {"started", "status", "repository", "workflow"},
+}
+
+// sortKeys name the sortable views in the preferences file, so renaming a view keeps its saved sort.
+var sortKeys = map[viewID]string{viewActivity: "activity", viewPRs: "prs", viewRepo: "repo", viewEnvs: "envs", viewRuns: "runs"}
+
+// sortName is the current sort of a view, or "" for a view that does not sort.
+func (m *Model) sortName(v viewID) string {
+	if names := sortsOf[v]; len(names) > 0 {
+		return names[m.sorts[v]]
+	}
+	return ""
+}
+
+// sortBy reorders a newest-first list by one key. The sort is stable, so each group stays newest first.
+func sortBy[T any, K cmp.Ordered](s []T, key func(T) K) {
+	slices.SortStableFunc(s, func(a, b T) int { return cmp.Compare(key(a), key(b)) })
+}
+
+// prRank orders pull requests by what needs you: your review, then yours ready to merge, then by state; drafts last.
+func (m *Model) prRank(p gitx.PR) int {
+	switch {
+	case p.Draft:
+		return 7
+	case p.ForMe:
+		return 0
+	case m.ready(p):
+		return 1
+	case p.Checks == gitx.ChecksFailing:
+		return 2
+	case p.Review == "CHANGES_REQUESTED":
+		return 3
+	case p.Review == "REVIEW_REQUIRED":
+		return 4
+	case p.Review == "APPROVED":
+		return 5
+	}
+	return 6
+}
+
+// runRank orders deploy runs: running, then stopped (failed or cancelled), then succeeded, then the rest.
+func runRank(r gitx.Run) int {
+	switch {
+	case r.Active():
+		return 0
+	case r.Stopped():
+		return 1
+	case r.Conclusion == "success":
+		return 2
+	}
+	return 3
+}
+
 func (m *Model) overviewRows() []int {
 	var rows []int
 	for i, r := range m.repos {
@@ -107,12 +167,19 @@ func (m *Model) overviewRows() []int {
 	return rows
 }
 
+// commitsMatching is a view's commits that pass its filter, in its sort; cs is never reordered.
 func (m *Model) commitsMatching(v viewID, cs []gitx.Commit) []gitx.Commit {
 	var out []gitx.Commit
 	for _, c := range cs {
 		if match(m.filters[v], c.Subject, c.Author, c.Repo, c.Hash) {
 			out = append(out, c)
 		}
+	}
+	switch m.sortName(v) {
+	case "repository":
+		sortBy(out, func(c gitx.Commit) string { return strings.ToLower(c.Repo) })
+	case "author":
+		sortBy(out, func(c gitx.Commit) string { return strings.ToLower(c.Author) })
 	}
 	return out
 }
@@ -148,6 +215,14 @@ func (m *Model) prList() []gitx.PR {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b gitx.PR) int { return b.Updated.Compare(a.Updated) })
+	switch m.sortName(viewPRs) {
+	case "status":
+		sortBy(out, m.prRank)
+	case "repository":
+		sortBy(out, func(p gitx.PR) string { return strings.ToLower(p.Repo) })
+	case "author":
+		sortBy(out, func(p gitx.PR) string { return strings.ToLower(p.Author) })
+	}
 	return out
 }
 
@@ -163,6 +238,12 @@ func (m *Model) envList() []envRow {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b envRow) int { return b.When.Compare(a.When) })
+	switch m.sortName(viewEnvs) {
+	case "repository":
+		sortBy(out, func(e envRow) string { return strings.ToLower(e.Repo) })
+	case "environment":
+		sortBy(out, func(e envRow) string { return strings.ToLower(e.Environment) })
+	}
 	return out
 }
 
@@ -178,6 +259,14 @@ func (m *Model) runList() []gitx.Run {
 		}
 	}
 	slices.SortStableFunc(out, func(a, b gitx.Run) int { return b.Started.Compare(a.Started) })
+	switch m.sortName(viewRuns) {
+	case "status":
+		sortBy(out, runRank)
+	case "repository":
+		sortBy(out, func(r gitx.Run) string { return strings.ToLower(r.Repo) })
+	case "workflow":
+		sortBy(out, func(r gitx.Run) string { return strings.ToLower(r.Workflow) })
+	}
 	return out
 }
 

@@ -30,6 +30,7 @@ const (
 	actRemove
 	actMoveUp
 	actMoveDown
+	actSort
 	actQuit
 )
 
@@ -61,6 +62,7 @@ var actions = []action{
 	{id: actSplitDown, key: bind("", "", "ctrl+t"), when: (*Model).canTab},
 	{id: actBack, key: bind("esc", "back", "esc"), hint: true, when: (*Model).canBack},
 	{id: actFilter, key: bind("/", "filter", "/"), hint: true, when: (*Model).filterable},
+	{id: actSort, key: bind("s", "sort", "s"), hint: true, when: (*Model).canSort},
 	{id: actAdd, key: bind("a", "add repositories", "a"), hint: true, when: (*Model).canAdd},
 	{id: actFix, key: bind("f", "find moved folder", "f"), hint: true, when: (*Model).canFix},
 	{id: actRename, key: bind("r", "rename repository", "r"), when: (*Model).canManage},

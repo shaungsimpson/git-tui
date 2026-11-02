@@ -72,6 +72,7 @@ type Options struct {
 	Release      update.Latest // the last successful update check, from the cache
 	ReleaseCache string        // where update checks are remembered; empty in demo mode and tests
 	Tools        map[string]string
+	Sorts        map[string]string // each list's saved sort, by sortKeys
 }
 
 type Model struct {
@@ -88,6 +89,7 @@ type Model struct {
 	focus   paneID
 	repo    int // 0 = all repositories, i+1 = repos[i]
 	cursor  [viewCount]int
+	sorts   [viewCount]int // each view's position in sortsOf
 	offset  [viewCount]int
 	inspect bool // detail shown in place of the list on narrow layouts
 	detOff  int
@@ -138,6 +140,11 @@ func New(o Options) *Model {
 	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
 	m.gh = map[string]*ghState{}
 	m.why = map[int64]*slot[[]string]{}
+	for v, k := range sortKeys {
+		if i := slices.Index(sortsOf[v], o.Sorts[k]); i >= 0 { // an unknown saved name keeps the default
+			m.sorts[v] = i
+		}
+	}
 	if o.Release.Version != "" {
 		m.release = slot[update.Latest]{val: o.Release, loaded: true, at: o.Release.Checked}
 	}
@@ -367,6 +374,39 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// canSort offers s on the lists that sort, but not on an open commit list or diff, which keep their own order.
+func (m *Model) canSort() bool {
+	_, ok := sortsOf[m.view]
+	return ok && !m.cmpOpen() && !m.diff.open
+}
+
+// cycleSort moves the view to its next sort, keeps the selected row selected and remembers the choice.
+func (m *Model) cycleSort() {
+	keys, cur := m.rowKeys(m.view), m.cursor[m.view]
+	names := sortsOf[m.view]
+	m.sorts[m.view] = (m.sorts[m.view] + 1) % len(names)
+	if cur < len(keys) {
+		m.follow(keys[cur])
+	}
+	name, k := names[m.sorts[m.view]], sortKeys[m.view]
+	m.flash = "Sorted by " + name + "."
+	m.savePrefs(func(s *config.State) {
+		if s.Sorts == nil {
+			s.Sorts = map[string]string{}
+		}
+		s.Sorts[k] = name
+	})
+}
+
+// follow moves the cursor to the row with this key, if the list still has it.
+func (m *Model) follow(key string) {
+	keys := m.rowKeys(m.view)
+	if i := slices.Index(keys, key); i >= 0 {
+		m.cursor[m.view] = i
+		m.keepVisible(m.view, &m.cursor[m.view], &m.offset[m.view], len(keys))
+	}
+}
+
 // savePrefs remembers one toggle for the next run, leaving the others as saved: a -profile flag lasts one run
 // and must not be saved by pressing u. The file is tiny, so it is written here, in order.
 func (m *Model) savePrefs(change func(*config.State)) {
@@ -441,6 +481,8 @@ func (m *Model) do(id actionID) tea.Cmd {
 		cmd := m.cycleProfile()
 		m.savePrefs(func(s *config.State) { s.Profile = profileNames[m.profile] })
 		return cmd
+	case actSort:
+		m.cycleSort()
 	case actTime:
 		m.utc = !m.utc
 		m.flash = "Times now shown in " + m.zone() + "."
