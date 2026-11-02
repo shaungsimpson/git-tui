@@ -35,6 +35,7 @@ A pull request is ready when all of these hold. CI checks the first two; reviewe
 
 ## Git and pull requests
 
-- Never push to `main`. Work on a branch and open a pull request; it is squash-merged.
+- Never push to `main`. Work on a branch and open a pull request.
+- A pull request is squash-merged by default. One that carries several separate items is rebase-merged instead, so each item stays its own commit on `main`. Before that merge, tidy the branch: one commit per item, each titled like a pull request and ending in `(#number)`, each passing on its own (`git rebase --exec "mise run lint && mise run test" main`), and review fixes folded into the commit they fix (`git commit --fixup`, then `git rebase --autosquash main` and `git push --force-with-lease`). Say which merge to use in the pull request description. When unsure, squash.
 - Commits and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`, `docs:`, `chore:`, `perf:`, `test:`), with no emojis.
 - Releases are git tags on `main` (`v0.3.0`), made after the merge. There is no version file to bump.

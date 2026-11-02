@@ -158,7 +158,7 @@ In Pull requests, a **★** in the column after the check status means someone h
 
 Authors are coloured so you can follow a person down a list: the same name always gets the same colour, ignoring case and punctuation (`Jane Doe` and `jane.doe` match). Your own name, as your GitHub login, display name or git name, is in the accent colour (a PR author must match your login exactly), and bots such as `renovate[bot]` and GitHub Apps (`app/dependabot`) are grey. A GitHub login and a git name for someone else can still get different colours, since nothing links them.
 
-Tag comparisons are plain commit lists. PRs are squash-merged, so each commit title is already its PR title with `(#number)`; no feature summaries are invented. Environments show what **GitHub Deployments recorded**, not what the running service reports: a workflow can record success without the service serving that commit. "Not yet deployed" uses your local clone, so it is as current as your last `git fetch`; if the deployed commit is newer than your clone, the view says so. Ahead/behind reflects your last `git fetch`, since git-tui never fetches.
+Tag comparisons are plain commit lists. Each commit on `main` is titled like a PR and ends in its PR number `(#number)`, whether the PR was squash-merged or rebase-merged one commit per item; no feature summaries are invented. Environments show what **GitHub Deployments recorded**, not what the running service reports: a workflow can record success without the service serving that commit. "Not yet deployed" uses your local clone, so it is as current as your last `git fetch`; if the deployed commit is newer than your clone, the view says so. Ahead/behind reflects your last `git fetch`, since git-tui never fetches.
 
 ## Profile header
 
