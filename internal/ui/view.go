@@ -552,7 +552,7 @@ func (m *Model) runDetail(r gitx.Run) []string {
 		m.kv("Commit", clean(r.Commit), m.st.id),
 		m.kv("Started", m.when(r.Started), m.st.date),
 		"",
-		m.kv("Link", clean(r.URL), m.st.muted), // after the blank, so only the page shows it
+		m.kv("Link", "", m.st.muted) + m.linkify(clean(r.URL), m.st.muted), // after the blank, so only the page shows it
 		"",
 		" " + clean(r.Title),
 		"",
@@ -703,14 +703,19 @@ func (m *Model) prDetail(p gitx.PR) []string {
 	if m.ready(p) {
 		lines = slices.Insert(lines, 5, m.kv("Ready", "✔ approved, checks passing", m.st.ok))
 	}
-	lines = append(lines, "", m.kv("Link", clean(p.URL), m.st.muted)) // after the blank, so only the page shows it
+	lines = append(lines, "", m.kv("Link", "", m.st.muted)+m.linkify(clean(p.URL), m.st.muted)) // after the blank, so only the page shows it
 	if strings.TrimSpace(p.Body) != "" {
-		lines = append(lines, "", m.st.title.Render(" Description"))
-		shown, more := bodyLines(p.Body)
-		for _, l := range shown {
-			lines = append(lines, " "+clean(l))
-			for _, link := range termimg.Links(l) {
-				lines = append(lines, m.picLines(link)...)
+		title := " Description"
+		if m.rawMD {
+			title += " · raw"
+		}
+		lines = append(lines, "", m.st.title.Render(title))
+		desc, more := m.descLines(p)
+		for _, l := range desc {
+			if l.pic != nil {
+				lines = append(lines, m.picLines(*l.pic)...)
+			} else {
+				lines = append(lines, l.text)
 			}
 		}
 		if more > 0 {
@@ -1117,7 +1122,7 @@ func (m *Model) commitDetail(c gitx.Commit) []string {
 	if c.Body != "" {
 		lines = append(lines, "")
 		for _, l := range strings.Split(c.Body, "\n") {
-			lines = append(lines, " "+clean(l)) // clean per line so the body keeps its line breaks
+			lines = append(lines, " "+m.linkify(clean(l), lipgloss.NewStyle())) // clean per line so the body keeps its line breaks
 		}
 	}
 	return lines

@@ -59,8 +59,8 @@ internal/config      JSON config loading, saving (Save) and per-repository valid
 internal/gitx        read-only git and gh runner, parsers, demo fixtures (demo.go, demo_images.go)
 internal/update      which build is running (Go build metadata), version comparison, the update check and its cache
 internal/ui          Bubble Tea model and key dispatch (model.go), asynchronous loads (load.go), list contents (lists.go),
-                     diff and commit comparisons (compare.go), PR pictures (pictures.go), browser and terminal tabs (open.go),
-                     rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go),
+                     diff and commit comparisons (compare.go), PR descriptions as markdown (markdown.go, with goldmark),
+                     PR pictures (pictures.go), browser and terminal tabs (open.go), rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go),
                      managing repositories (repos.go), groups (groups.go), the Connections view (connections.go), colours (theme.go),
                      review, ready-to-merge and update badges (alerts.go), the update details (update.go);
                      tests sit beside the code they cover (load_test.go for load.go), with shared helpers in helpers_test.go

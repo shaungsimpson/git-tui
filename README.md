@@ -121,7 +121,7 @@ Once a repository has a group, `]` and `[` cycle what is shown: all repositories
 
 ## Remembered preferences
 
-The time zone (`u`), the date format (`w`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`), the group shown (`]` and `[`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the date format (`w`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`), whether descriptions are formatted (`m`), the group shown (`]` and `[`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
@@ -135,7 +135,7 @@ The time zone (`u`), the date format (`w`), the profile header style (`b`), whet
 |-------------|-----------------------------------------------------------------------------------------|
 | Overview    | Per repository: branch, worktree state, ahead/behind, how long ago it last fetched (amber after a day, red after a week), latest commit |
 | Activity    | Recent commits (100 per repository), merged by date, for all repositories or the one selected |
-| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). Its detail page (`v`) shows the description (first 200 lines, with its pictures) and the changed files; `d` shows the PR's code diff |
+| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). Its detail page (`v`) shows the description, formatted (see [Descriptions](#descriptions)), and the changed files; `d` shows the PR's code diff |
 | Repository  | Branch, HEAD, upstream, tracking, last fetch and worktree for the selected repository, plus its commits: first those on its upstream branch that you fetched but have not pulled (up to 50), then its recent ones. The last fetch line also says how many newer commits GitHub has that you have not fetched |
 | Tags        | Tags; mark one as the base and pick another to list the **commits** between them        |
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
@@ -222,9 +222,17 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
 | `]` / `[`         | Show the next or previous group: all repositories, then each group. Offered once a repository has a group. See [Groups](#groups). Remembered between runs |
 | `a` `r` `e` `x` `K` `J` `f` | In Connections: add, rename, group, remove, reorder or find repositories. See [Managing repositories](#managing-repositories) |
+| `m`               | On a PR's detail page: show its description formatted or as markdown source. Remembered between runs. See [Descriptions](#descriptions) |
+| `z`               | On a PR's detail page: open or close the description's `<details>` sections |
 | `Ctrl+C`          | Quit                                                                       |
 
+Links are blue and underlined: the Link row of a pull request or deploy run, the links in a PR description, and any `https://` URL in a commit message. Your terminal opens them, not git-tui: Cmd+click in Ghostty on macOS, Ctrl+click in Windows Terminal, and the like in other terminals that support OSC 8 hyperlinks. Elsewhere they still look like links; copy the URL, or press `o` to open the PR or run.
+
 ![The diff of a pull request, opened with d](docs/images/diff.webp)
+
+### Descriptions
+
+A pull request's description is formatted on its detail page, the way GitHub shows it: headings, bold and italic, `code`, lists and task lists (☐ ☑), quotes, alerts such as `> [!NOTE]`, rules, code blocks and tables. A link shows its text, blue and underlined; hover over it to see where it goes. A table lines up its columns in the window's width, cutting the widest short with `…`; when a column would get narrower than 8 characters, each row is shown as its own block of header and value lines instead. A picture on a line of its own is drawn (see [Scope and behaviour](#scope-and-behaviour)); one within text or a table cell, such as a badge, shows its alt text and is not downloaded. HTML comments are hidden, and other HTML shows its text. `<details>` sections are closed, showing their summary (`▸ Release notes`); `z` opens every section on the page (`▾`) and closes them again, and they close when you move to another PR. `m` shows the markdown source instead (the heading reads `Description · raw`), with its URLs linked; it is remembered between runs. Footnotes and anything else not formatted show as plain text. The description is cut at 200 lines; `o` opens the rest on GitHub.
 
 A pull request's detail page, opened with `v`:
 
@@ -251,6 +259,7 @@ While the filter, rename or folder input is open, all typing and pasted text go 
 - A failed load keeps the last good data on screen and retries by itself after 1, 2, 4 and 8 minutes, then every 10 minutes; Ctrl+R retries at once, pictures and your avatar included, and the status line shows a `ctrl+r retry` hint.
 - `t`, `T` and `Ctrl+T` run `osascript` with Ghostty's own AppleScript commands to open a tab in the front window, or split the focused pane (1-minute timeout, so there is time to answer the macOS permission prompt). A relative repository path is made absolute first. The repository path is passed as an argument, not written into the script. The first time, macOS may ask to let Ghostty control Ghostty; if you refuse, the key shows the error. On WSL inside Windows Terminal (`WT_SESSION` set and `wt.exe` on the path), they run `wt.exe -w 0 new-tab` (or `split-pane -V` / `-H`) with `wsl.exe -d <your distribution> --cd <path>` in the current window, as an argument list with the same timeout; a path containing `;` is refused, because Windows Terminal reads it as the start of another command. Demo mode only says which directory it would open.
 - Besides your repositories' pull requests, deployments and runs, the app reads your GitHub profile (`gh api user`), downloads PR pictures and your avatar from GitHub's hosts (pictures on github.com itself with the login token from `gh auth token`, 5-second timeout), and checks for a newer git-tui release (see [Updates](#updates)). Nothing else goes over the network.
+- Links are OSC 8 hyperlinks, sent to every terminal: one that does not support them ignores the code and shows the text, still blue and underlined. tmux passes them on from 3.4 with `set -as terminal-features ",*:hyperlinks"`. Only `https://` links are made clickable. In a formatted description a link shows its text; in the markdown source and in commit messages each URL is linked exactly as shown, leaving out a full stop or unmatched bracket after it. Diffs are not linked. git-tui never captures the mouse, so selecting text works as usual.
 - Loads run asynchronously. A refresh keeps the existing content visible, and results from superseded requests are discarded.
 - Paths in your home folder (repositories, the configuration file, the executable, `git` and `gh`) are shown from `~`, so a screenshot does not give away your account name.
 - Text from Git (subjects, branch names, errors) has its control characters, escape sequences and text direction overrides removed before display.

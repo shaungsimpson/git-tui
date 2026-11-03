@@ -533,6 +533,20 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if page := m.render(); !strings.ContainsRune(page, kitty.Placeholder) || !strings.Contains(ansi.Strip(page), "Details · Pull requests") {
 		t.Fatal("demo PRs should draw their pictures on the detail page")
 	}
+	page := m.render()
+	if links := strings.Join(linkTargets(page), " "); !strings.Contains(links, "https://example.com/docs/off-by-one https://example.com/runbook") {
+		t.Fatalf("demo PR pages should link the URLs in their description, got %s", links)
+	}
+	for _, l := range strings.Split(page, "\n") {
+		if open, closed := len(linkTargets(l)), strings.Count(l, "\x1b]8;;\a"); open != closed {
+			t.Fatalf("a link should close on the line it opens: %q", l)
+		}
+	}
+	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return p.Number == 499 })
+	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "▸ left-pad/core") || !strings.Contains(d, "▸ Commits") || !strings.Contains(d, "devDependencies  patch") {
+		t.Fatalf("the demo's bot PR should show a formatted table and a closed section:\n%s", d)
+	}
+	m.cursor[viewPRs] = 0
 	press(m, "J", "d")
 	if m.cursor[viewPRs] != 1 || !m.diff.open {
 		t.Fatalf("on the page, J should step to the next PR and d open its diff: cursor %d", m.cursor[viewPRs])

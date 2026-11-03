@@ -76,6 +76,7 @@ type Options struct {
 	Tools        map[string]string
 	Sorts        map[string]string // each list's saved sort, by sortKeys
 	Group        string            // the saved group to show; one that no longer exists shows all
+	RawMarkdown  bool              // PR descriptions show their markdown source instead of formatted
 }
 
 type Model struct {
@@ -92,8 +93,11 @@ type Model struct {
 
 	view    viewID
 	focus   paneID
-	repo    int    // 0 = all repositories, i+1 = repos[i]
-	group   string // only repositories in this group are shown and loaded; empty shows all
+	repo    int     // 0 = all repositories, i+1 = repos[i]
+	rawMD   bool    // PR descriptions show their markdown source
+	openFor string  // the PR whose <details> sections are open, by URL
+	mdc     mdCache // the last description formatted
+	group   string  // only repositories in this group are shown and loaded; empty shows all
 	cursor  [viewCount]int
 	sorts   [viewCount]int // each view's position in sortsOf
 	offset  [viewCount]int
@@ -152,6 +156,7 @@ func New(o Options) *Model {
 	m.gh = map[string]*ghState{}
 	m.why = map[int64]*slot[[]string]{}
 	m.dates = max(0, slices.Index(dateFormats, o.Dates)) // an unknown saved name keeps the default
+	m.rawMD = o.RawMarkdown
 	for v, k := range sortKeys {
 		if i := slices.Index(sortsOf[v], o.Sorts[k]); i >= 0 { // an unknown saved name keeps the default
 			m.sorts[v] = i
@@ -495,7 +500,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 		}
 		*cur = min(max(*cur+d, 0), n-1)
 		keepVisible(cur, off, n, m.listHeight(m.view))
-		m.detOff = 0
+		m.detOff, m.openFor = 0, "" // a new row: its sections start closed
 		return m.ensure(false)
 	case actBack:
 		m.back()
@@ -529,6 +534,23 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return m.openScan(m.connRepo())
 	case actRename:
 		return m.startRename()
+	case actMarkdown:
+		m.rawMD = !m.rawMD
+		m.detOff = min(m.detOff, m.maxDetailOff())
+		m.flash = "Descriptions shown formatted."
+		if m.rawMD {
+			m.flash = "Descriptions shown as markdown source."
+		}
+		m.savePrefs(func(s *config.State) { s.RawMarkdown = m.rawMD })
+	case actSections:
+		if p, ok := m.selectedPR(); ok {
+			if m.openFor == p.URL {
+				m.openFor = ""
+			} else {
+				m.openFor = p.URL
+			}
+			m.detOff = min(m.detOff, m.maxDetailOff())
+		}
 	case actGroup:
 		return m.startGroup()
 	case actNextGroup:
@@ -733,7 +755,7 @@ func (m *Model) move(d int) tea.Cmd {
 		}
 		*cur = min(max(*cur+d, 0), n-1)
 		keepVisible(cur, off, n, m.listHeight(m.view))
-		m.detOff = 0
+		m.detOff, m.openFor = 0, ""
 	}
 	return nil
 }
@@ -744,7 +766,7 @@ func (m *Model) selectRepo(i int) {
 	for _, v := range []viewID{viewActivity, viewPRs, viewRepo, viewTags, viewEnvs, viewRuns} {
 		m.cursor[v], m.offset[v] = 0, 0
 	}
-	m.detOff = 0
+	m.detOff, m.openFor = 0, ""
 }
 
 // keepVisible scrolls a list of n rows, h of them on screen, so the cursor shows.

@@ -12,13 +12,14 @@ import (
 // State is what the app remembers between runs. It lives apart from the configuration, which holds the
 // repository list only.
 type State struct {
-	UTC       bool              `json:"utc"`
-	NoPreview bool              `json:"noPreview,omitempty"` // the list takes the preview pane's width
-	Dates     string            `json:"dates,omitempty"`     // how list rows show dates
-	Profile   string            `json:"profile,omitempty"`
-	ScanRoot  string            `json:"scanRoot,omitempty"` // where adding repositories last looked
-	Sorts     map[string]string `json:"sorts,omitempty"`    // each list's sort, by view
-	Group     string            `json:"group,omitempty"`    // the group shown; empty shows every repository
+	UTC         bool              `json:"utc"`
+	NoPreview   bool              `json:"noPreview,omitempty"` // the list takes the preview pane's width
+	Dates       string            `json:"dates,omitempty"`     // how list rows show dates
+	Profile     string            `json:"profile,omitempty"`
+	ScanRoot    string            `json:"scanRoot,omitempty"`    // where adding repositories last looked
+	Sorts       map[string]string `json:"sorts,omitempty"`       // each list's sort, by view
+	Group       string            `json:"group,omitempty"`       // the group shown; empty shows every repository
+	RawMarkdown bool              `json:"rawMarkdown,omitempty"` // PR descriptions show their markdown source
 }
 
 // StatePath is $XDG_STATE_HOME/git-tui/state.json, which defaults to ~/.local/state/git-tui/state.json.

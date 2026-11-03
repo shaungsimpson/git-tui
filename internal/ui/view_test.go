@@ -42,8 +42,8 @@ func TestPullRequestBodyFilesAndDiff(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	press(m, "g", "p")
 	p := m.prList()[0]
-	detail := strings.Join(m.detailLines(), "\n")
-	for _, want := range []string{"Description", "## Summary", "Files changed (2)", "+12", "app/maths.ts",
+	detail := ansi.Strip(strings.Join(m.detailLines(), "\n"))
+	for _, want := range []string{"Description", " Summary", "Files changed (2)", "+12", "app/maths.ts",
 		"[image: Screenshot of the change · this terminal cannot draw images"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("PR details missing %q", want)
@@ -398,6 +398,42 @@ func TestSelectedRowKeepsColours(t *testing.T) {
 		want := m.st.id.Background(c.bg).Bold(c.bold).Render("0a1b2c3  ")
 		if !strings.Contains(line, want) || lipgloss.Width(line) != 40 {
 			t.Errorf("focus %v: the selected row should keep the ID colour on its background and fill the width:\n%q", c.focus, line)
+		}
+	}
+}
+
+// linkTargets is the URLs of the OSC 8 hyperlinks in s; lipgloss reopens a link on each line it wraps onto.
+func linkTargets(s string) []string {
+	var out []string
+	for _, m := range regexp.MustCompile("\x1b\\]8;[^;]*;([^\a]*)\a").FindAllStringSubmatch(s, -1) {
+		if m[1] != "" {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+func TestLinkify(t *testing.T) {
+	m := New(Options{})
+	for in, want := range map[string]string{
+		"Notes: https://a.example/docs.":                    "https://a.example/docs",
+		"See the [runbook](https://a.example/run).":         "https://a.example/run",
+		"(https://a.example/wiki/Foo_(bar))":                "https://a.example/wiki/Foo_(bar)",
+		"<https://a.example/x>, then **https://b.example**": "https://a.example/x https://b.example",
+		"http://a.example and https:// and ftp://a.example": "",
+	} {
+		out := m.linkify(in, m.st.muted)
+		if got := strings.Join(linkTargets(out), " "); got != want {
+			t.Errorf("%q: linked %q, want %q", in, got, want)
+		}
+		if ansi.Strip(out) != in {
+			t.Errorf("%q: the text should read as written, got %q", in, ansi.Strip(out))
+		}
+	}
+	long := " see " + m.linkify("https://github.com/acme-corp/widget-tui/pull/41/files/abcdef", m.st.text) + " end"
+	for _, l := range append(wrapLines([]string{long}, 30), ansi.Truncate(long, 20, "…")) {
+		if open, closed := len(linkTargets(l)), strings.Count(l, "\x1b]8;;\a"); open == 0 || open != closed {
+			t.Errorf("each wrapped or cut line should open and close its link: %d opened, %d closed in %q", open, closed, l)
 		}
 	}
 }

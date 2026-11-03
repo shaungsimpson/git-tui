@@ -33,6 +33,8 @@ const (
 	actFix
 	actRename
 	actGroup
+	actMarkdown
+	actSections
 	actNextGroup
 	actPrevGroup
 	actRemove
@@ -84,6 +86,8 @@ var actions = []action{
 	{id: actPageUp, key: bind("", "", "pgup"), when: (*Model).paging},
 	{id: actNextItem, key: bind("J/K", "next / previous item", "J", "shift+j"), group: groupDetail, when: (*Model).paging},
 	{id: actPrevItem, key: bind("", "", "K", "shift+k"), when: (*Model).paging},
+	{id: actMarkdown, key: bind("m", "formatted / raw description", "m"), hint: true, group: groupDetail, when: (*Model).canMarkdown},
+	{id: actSections, key: bind("z", "open / close sections", "z"), hint: true, group: groupDetail, when: (*Model).canSections},
 	{id: actBrowse, key: bind("o", "open in browser", "o"), hint: true, item: true, group: groupLists, when: (*Model).canBrowse},
 	{id: actDiff, key: bind("d", "diff", "d"), hint: true, item: true, group: groupLists, when: (*Model).canDiff},
 	{id: actTab, key: bind("t", "new tab", "t"), hint: true, item: true, group: groupLists, when: (*Model).canTab},

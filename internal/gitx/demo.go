@@ -45,7 +45,7 @@ var demoSubjects = []string{
 var demoBodies = []string{
 	"",
 	"The previous fix was off by one, in the other direction.\n\n* Count from zero this time\n* Add a regression test so it stays fixed",
-	"Requested by the team that needed it yesterday so changes can be traced back to a person.",
+	"Requested by the team that needed it yesterday (https://example.com/tickets/YAK-42) so changes can be traced back to a person.",
 }
 
 var demoAuthors = []string{"Alice", "Bob", "Chuck", "Dave"}
@@ -191,7 +191,7 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 			Review:  reviews[k%len(reviews)],
 			Checks:  checks[k%len(checks)],
 			Updated: demoBase.Add(-time.Duration(k*5) * time.Hour),
-			Body: "## Summary\n\n" + demoBodies[(k%2)+1] + "\n\n![Screenshot of the change](https://github.com/user-attachments/assets/demo-" +
+			Body: "## Summary\n\n" + demoBodies[(k%2)+1] + "\n\nNotes: https://example.com/docs/off-by-one. See the [runbook](https://example.com/runbook).\n\n![Screenshot of the change](https://github.com/user-attachments/assets/demo-" +
 				fmt.Sprint(k) + ")\n\n- [x] Tests added",
 			Files: []PRFile{{"app/maths.ts", 12, 3}, {"app/maths.test.ts", 40, 0}},
 			ForMe: i == 1,
@@ -201,8 +201,61 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 			p.Author, p.Review, p.Checks, p.Draft = "alice", "APPROVED", ChecksPassing, false
 		}
 	}
+	if repo == "backend" { // a dependency bot's PR, whose description shows the markdown formatting
+		prs = append(prs, PR{
+			Repo: repo, Number: 499, Title: "chore(deps): update weekly dependencies", Author: "app/renovate",
+			Branch: "renovate/weekly", URL: "https://github.com/example/backend/pull/499", Review: "REVIEW_REQUIRED",
+			Checks: ChecksPassing, Updated: demoBase.Add(-200 * time.Hour), Body: demoRenovate,
+			Files: []PRFile{{"package.json", 2, 2}, {"pnpm-lock.yaml", 24, 24}},
+		})
+	}
 	return prs, nil
 }
+
+// demoRenovate is a dependency bot's PR description: an alert, a table with badges, release notes in a
+// <details> section, a task list and code.
+const demoRenovate = `> [!NOTE]
+> Updates are grouped weekly. See the [merge confidence](https://docs.renovatebot.com/merge-confidence/) docs.
+
+This PR contains the following updates:
+
+| Package | Change | Age | Confidence | Type | Update |
+|---|---|---|---|---|---|
+| [@left-pad/is-even](https://github.com/left-pad/core) ([source](https://github.com/left-pad/core/tree/HEAD/packages/is-even)) | [` + "`3.5.43` → `3.5.44`" + `](https://renovatebot.com/diffs/npm/@left-pad%2fis-even/3.5.43/3.5.44) | ![age](https://developer.mend.io/api/mc/badges/age/npm/@left-pad%2fis-even/3.5.44) | ![confidence](https://developer.mend.io/api/mc/badges/confidence/npm/@left-pad%2fis-even/3.5.43/3.5.44) | devDependencies | patch |
+| [acme/yak-shaver-3k](https://example.com/yak-shaver) | ` + "`d263541` → `afc8e39`" + ` | | | stage | digest |
+
+---
+
+### Release notes
+
+<details>
+<summary>left-pad/core (@&#8203;left-pad/is-even)</summary>
+
+#### [` + "`v3.5.44`" + `](https://github.com/left-pad/core/releases/tag/v3.5.44)
+
+- **is-even:** keep comments in ` + "`<script setup>`" + ` ([#13401](https://github.com/left-pad/core/issues/13401))
+- **runtime-core:** avoid a double mount on fast re-renders
+
+</details>
+<details>
+<summary>Commits</summary>
+<ul>
+<li><a href="https://github.com/left-pad/core/commit/4f1c2a9"><code>4f1c2a9</code></a> release: v3.5.44</li>
+<li>See <a href="https://github.com/left-pad/core/compare/v3.5.43...v3.5.44">full diff</a> in compare view</li>
+</ul>
+</details>
+
+### Configuration
+
+- [x] Automerge is off
+- [ ] Rebase when conflicted
+
+` + "```" + `json
+{ "schedule": ["before 6am on monday"] }
+` + "```" + `
+
+<!-- renovate-debug:eyJjcmVhdGVkSW5WZXIiOiI0MS4wLjAifQ== -->
+`
 
 func (Demo) Deployments(_ context.Context, repo, dir string) ([]Deployment, error) {
 	if err := demoGHErr(repo, dir); err != nil {

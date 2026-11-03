@@ -54,12 +54,12 @@ func (m *Model) ensurePics() tea.Cmd {
 		return nil
 	}
 	cols := m.picCols()
-	shown, _ := bodyLines(m.prList()[*cur].Body)
+	desc, _ := m.descLines(m.prList()[*cur]) // only the pictures drawn: a badge within text shows its alt text
 	var cmds []tea.Cmd
 	var place strings.Builder
-	for _, line := range shown {
-		for _, link := range termimg.Links(line) {
-			url := link.URL
+	for _, line := range desc {
+		if line.pic != nil {
+			url := line.pic.URL
 			if st, seen := m.pics[url]; seen {
 				if !st.loading && st.err == nil && st.placed != cols {
 					place.WriteString(st.pic.Place(cols))
