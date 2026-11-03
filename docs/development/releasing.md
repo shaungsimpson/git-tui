@@ -22,11 +22,23 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
    gh run list --commit "$(git rev-parse HEAD)"
    ```
 
-3. **Tag it and push the tag:**
+3. **Tag it and push the tag.** The tag's message is a short summary, so `git tag -n1` reads as a one-line changelog and `git show "$v"` gives the gist offline; the full notes go in the GitHub Release (step 4). Write it in a file outside the clone, such as `/tmp/tag.txt`: the version and a title of a few words, a blank line, then up to three lines on what changed and anything users must know. For example:
+
+   ```text
+   v0.15.0: Repository groups
+
+   - Give a repository a group with e in Connections, or "group" in config.json
+   - ] and [ show one group at a time; hidden repositories make no git or gh calls
+   - Configs using group need v0.15.0 or later
+   ```
+
+   Then tag with it and push the tag:
 
    ```sh
-   git tag -a "$v" -m "$v" && git push origin "$v"
+   git tag -a "$v" -F /tmp/tag.txt && git push origin "$v"
    ```
+
+   A pushed tag is never moved or rewritten: Go's module cache and checksum database remember the commit each version points to. v0.15.0 and earlier keep their old messages.
 
 4. **Write the notes** in a file outside the clone, such as `/tmp/notes.md`, in the same shape as earlier releases (see [v0.4.1](https://github.com/shaungsimpson/git-tui/releases/tag/v0.4.1)): **New**, **Changes**, **Fixes**, **Notes** for anything users should know (such as extra `gh` calls), **Install or upgrade**, and the full changelog link. Leave out sections with nothing in them. Then publish the GitHub Release:
 
