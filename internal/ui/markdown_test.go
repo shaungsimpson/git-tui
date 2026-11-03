@@ -95,6 +95,14 @@ func TestMarkdownBotAndEdgeHTML(t *testing.T) {
 		!slices.Contains(linkTargets(out), "https://g.example/x") {
 		t.Errorf("open sections should show their contents, links kept:\n%s", plain)
 	}
+	for _, body := range []string{
+		"<details><summary>Shots</summary>\n\nhidden text </details>\n\nVisible after.",          // closed within a paragraph
+		"<details>\n<summary>Shots</summary>\n\n- hidden item\n\n  </details>\n\nVisible after.", // closed within a list item
+	} {
+		if plain, _ := draw(body, false); !strings.Contains(plain, "▸ Shots") || !strings.Contains(plain, "Visible after.") || strings.Contains(plain, "hidden") {
+			t.Errorf("a closed section should end at its </details> wherever it sits:\n%s", plain)
+		}
+	}
 	if plain, _ := draw("> [!NOTE]\n>\n> Separate paragraph.", false); strings.Contains(plain, "[!NOTE]") || !strings.Contains(plain, "│ Note") {
 		t.Errorf("an alert marker on its own paragraph should become the label only:\n%s", plain)
 	}

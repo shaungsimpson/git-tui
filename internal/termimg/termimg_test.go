@@ -182,3 +182,16 @@ func TestAvatarRedirectsStayOnHost(t *testing.T) {
 		t.Fatalf("attachments still follow GitHub to its storage: %v", err)
 	}
 }
+
+func TestSendsToken(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"https://github.com/user-attachments/assets/a":     true,
+		"https://avatars.githubusercontent.com/u/1":        false,
+		"https://raw.githubusercontent.com/o/r/main/a.png": false,
+		"https://github.com.evil.example/a":                false,
+	} {
+		if got := SendsToken(raw); got != want {
+			t.Errorf("SendsToken(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

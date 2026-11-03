@@ -17,9 +17,10 @@ import (
 )
 
 // TestMain leaves out the idle refresh tick, which would make drain wait out its timeout in every test;
-// the refresh tests drive onRefresh directly.
+// the refresh tests drive onRefresh directly. Keys settle at once, so a key's loads finish within press.
 func TestMain(m *testing.M) {
 	refreshTick = func() tea.Cmd { return nil }
+	settleAfter = 0
 	os.Exit(m.Run())
 }
 

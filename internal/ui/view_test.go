@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"image/color"
 	"regexp"
 	"slices"
@@ -439,5 +440,26 @@ func TestLinkify(t *testing.T) {
 		if open, closed := len(linkTargets(l)), strings.Count(l, "\x1b]8;;\a"); open == 0 || open != closed {
 			t.Errorf("each wrapped or cut line should open and close its link: %d opened, %d closed in %q", open, closed, l)
 		}
+	}
+}
+
+func TestRepoViewKeepsItsRowsOnScreen(t *testing.T) {
+	m := setup(t, demoOpts(), 120, 30)
+	m.selectRepo(1)
+	press(m, "g", "r", "end", "g", "a")
+	m.clampAll() // as any load result does while another view shows
+	press(m, "g", "r")
+	if cur, off := m.cursor[viewRepo], m.offset[viewRepo]; cur < off || cur >= off+m.listHeight(viewRepo) {
+		t.Fatalf("back in Repository the selected row %d should show, from row %d", cur, off)
+	}
+
+	o := demoOpts()
+	o.Profile = ProfileOff
+	m = setup(t, o, 70, 16)
+	m.selectRepo(1)
+	press(m, "g", "r")
+	m.repos[0].summary.err = errors.New("boom") // a failed refresh adds a line to the info block
+	if h := m.listHeight(viewRepo); h < 2 {
+		t.Fatalf("the smallest window should keep at least 2 commit rows, got %d", h)
 	}
 }

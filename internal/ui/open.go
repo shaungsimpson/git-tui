@@ -143,6 +143,9 @@ func (m *Model) canTab() bool {
 
 // browseTarget is the web link for the selected row, and how to name it; empty where there is none.
 func (m *Model) browseTarget() (url, what string) {
+	if m.focus == paneSidebar { // the sidebar's row is a repository, as for d and t
+		return "", ""
+	}
 	if r, ok := m.selectedRun(); ok {
 		return r.URL, "the " + clean(r.Workflow) + " run"
 	}

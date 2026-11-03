@@ -124,6 +124,11 @@ func TestDetailPageKeepsItsItemOnRefresh(t *testing.T) {
 	if got := m.prList()[m.cursor[viewPRs]]; got.Number != p.Number {
 		t.Fatalf("a refresh swapped the open page from #%d to #%d", p.Number, got.Number)
 	}
+	gone := slices.DeleteFunc(slices.Clone(m.repos[i].gh.prs.val), func(q gitx.PR) bool { return q.Number == p.Number })
+	m.Update(answer(&m.repos[i].gh.prs, kindPRs, i, gone, nil))
+	if m.inspect || m.focus != paneMain || !strings.Contains(m.flash, "gone") {
+		t.Fatal("a refresh that drops the open item should close its page and say so, not show the next item")
+	}
 }
 
 func TestDetailPageEmptiedList(t *testing.T) {
@@ -574,8 +579,8 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	press(m, "v")                 // pictures load once the page is open
 	for url, st := range m.pics { // a fetch drain gave up on under -race; finish it here, through the same demo source
 		if st.loading {
-			pic, err := fetchPic(context.Background(), m.opts.Source, url, picBase+99)
-			m.Update(picMsg{url, pic, err})
+			pic, err := fetchPic(context.Background(), m.opts.Source, url, st.pic.ID)
+			m.Update(picMsg{url, st.pic.ID, pic, err})
 		}
 	}
 	if page := m.render(); !strings.ContainsRune(page, kitty.Placeholder) || !strings.Contains(ansi.Strip(page), "Details · Pull requests") {

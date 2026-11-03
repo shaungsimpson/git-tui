@@ -53,6 +53,10 @@ func TestOpenPullRequestInBrowser(t *testing.T) {
 	if len(opened) != 2 || opened[1] != run.URL || !strings.Contains(m.flash, run.Workflow) {
 		t.Fatalf("o should open the selected deploy run: %v, flash %q", opened, m.flash)
 	}
+	press(m, "shift+tab", "o")
+	if m.focus != paneSidebar || m.canBrowse() || len(opened) != 2 {
+		t.Fatalf("o from the sidebar should not open the list's run: %v", opened)
+	}
 }
 
 func TestOpenTab(t *testing.T) {

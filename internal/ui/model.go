@@ -108,6 +108,9 @@ type Model struct {
 	why     map[int64]*slot[[]string] // why each stopped deploy run stopped, by run ID, read when first selected
 	pics    map[string]*picState      // by picture link
 	picIDs  int
+	picPage string             // the row whose pictures are loading
+	picCtx  context.Context    // those loads'; nil until one starts
+	picStop context.CancelFunc // cancels them when the page changes
 
 	profile Profile
 	me      slot[gitx.Viewer]
@@ -133,11 +136,13 @@ type Model struct {
 
 	gens int // issues slot generations, unique across slots so a result never lands on another repository
 
-	help     bool
-	helpOff  int // how far help is scrolled
-	pendingG bool
-	seqGen   int
-	flash    string
+	help       bool
+	helpOff    int // how far help is scrolled
+	pendingG   bool
+	seqGen     int
+	footerMemo int // footerRows while a frame renders; 0 outside one
+	settleGen  int // the newest key's; an older settledMsg is dropped
+	flash      string
 
 	polling  bool          // a Deploys reload tick is scheduled
 	pollWait time.Duration // how far apart those ticks are now
@@ -207,14 +212,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		// Any key can reveal a running deploy (view, repository, filter), so check whether to start watching.
-		cmd := tea.Batch(m.handleKey(msg), m.schedulePoll(), m.ensurePics())
+		cmd := tea.Batch(m.handleKey(msg), m.schedulePoll())
 		if m.ctx.Err() != nil { // quitting
 			return m, cmd
 		}
-		return m, tea.Batch(cmd, m.touch()) // any key refreshes what is stale
+		// What a key reveals loads once keys pause, so a held j or J loads only where it stops.
+		return m, tea.Batch(cmd, m.touch(), debounce(&m.settleGen, settleAfter, func(gen int) tea.Msg { return settledMsg{gen} }))
+	case settledMsg:
+		if msg.gen == m.settleGen {
+			return m, tea.Batch(m.ensure(false), m.ensurePics())
+		}
 	case tea.FocusMsg:
 		m.focused = true
-		return m, m.touch()
+		return m, tea.Batch(m.touch(), m.ensure(false))
 	case tea.BlurMsg:
 		m.focused = false // the idle tick stops at its next beat
 	case refreshMsg:
@@ -231,7 +241,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmd, m.schedulePoll())
 		}
 	case picMsg:
-		if st, ok := m.pics[msg.url]; ok {
+		if st, ok := m.pics[msg.url]; ok && st.pic.ID == msg.id { // not a load cancelled before this one
 			st.loading, st.pic, st.err = false, msg.pic, msg.err
 			if msg.err == nil {
 				cols := m.picCols()
@@ -464,9 +474,9 @@ func (m *Model) savePrefs(change func(*config.State)) {
 func (m *Model) do(id actionID) tea.Cmd {
 	switch id {
 	case actUp:
-		return m.move(-1)
+		m.move(-1)
 	case actDown:
-		return m.move(1)
+		m.move(1)
 	case actFocusNext:
 		m.cycleFocus(1)
 	case actFocusPrev:
@@ -477,13 +487,13 @@ func (m *Model) do(id actionID) tea.Cmd {
 		m.inspect, m.focus, m.detOff = true, paneDetail, 0
 		return tea.Batch(m.ensurePics(), m.ensure(false)) // a stopped run's reasons load once the page shows them
 	case actPageDown:
-		return m.move(m.page())
+		m.move(m.page())
 	case actPageUp:
-		return m.move(-m.page())
+		m.move(-m.page())
 	case actTop:
-		return m.move(-far)
+		m.move(-far)
 	case actBottom:
-		return m.move(far)
+		m.move(far)
 	case actNextItem, actPrevItem:
 		n, cur, off := m.list()
 		if n == 0 { // a refresh can empty the list behind the page
@@ -495,8 +505,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 		}
 		*cur = min(max(*cur+d, 0), n-1)
 		keepVisible(cur, off, n, m.listHeight(m.view))
-		m.detOff, m.openFor = 0, "" // a new row: its sections start closed
-		return m.ensure(false)
+		m.detOff, m.openFor = 0, "" // a new row: its sections start closed; it loads once keys settle
 	case actBack:
 		m.back()
 	case actFilter:
@@ -508,12 +517,10 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return m.input.Focus()
 	case actGo:
 		m.pendingG = true
-		m.seqGen++
-		gen := m.seqGen
-		return tea.Tick(seqTimeout, func(time.Time) tea.Msg { return seqExpiredMsg{gen} })
+		return debounce(&m.seqGen, seqTimeout, func(gen int) tea.Msg { return seqExpiredMsg{gen} })
 	case actRefresh:
 		m.flash = "Refreshing " + viewNames[m.view]
-		// Failed pictures retry too: the key's ensurePics fetches them again, and the viewer reload the avatar.
+		// Failed pictures retry too: ensurePics below fetches them again, and the viewer reload the avatar.
 		for url, st := range m.pics {
 			if st.err != nil {
 				delete(m.pics, url)
@@ -522,7 +529,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 		if m.avatar.err != nil {
 			m.avatar.url = ""
 		}
-		return m.ensure(true)
+		return tea.Batch(m.ensurePics(), m.ensure(true)) // pictures first only for tests, whose drain runs a batch in order
 	case actAdd:
 		return m.openScan(-1)
 	case actFix:
@@ -725,34 +732,32 @@ func (m *Model) cycleFocus(dir int) {
 	m.focus = ps[(i+dir+len(ps))%len(ps)]
 }
 
-// move handles j/k in whichever pane has focus.
-func (m *Model) move(d int) tea.Cmd {
+// move handles j/k in whichever pane has focus. What a move reveals loads once keys settle.
+func (m *Model) move(d int) {
 	switch m.focus {
 	case paneSidebar:
 		shown := m.shown()
 		pos := slices.Index(shown, m.repo-1) + 1
 		next := min(max(pos+d, 0), len(shown))
 		if next == pos {
-			return nil
+			return
 		}
 		if next == 0 {
 			m.selectRepo(0)
 		} else {
 			m.selectRepo(shown[next-1] + 1)
 		}
-		return m.ensure(false)
 	case paneDetail:
 		m.detOff = min(max(0, m.detOff+d), m.maxDetailOff())
 	default:
 		n, cur, off := m.list()
 		if n == 0 {
-			return nil
+			return
 		}
 		*cur = min(max(*cur+d, 0), n-1)
 		keepVisible(cur, off, n, m.listHeight(m.view))
 		m.detOff, m.openFor = 0, ""
 	}
-	return nil
 }
 
 // far is a move past either end; moves clamp, so it lands on the first or last row.

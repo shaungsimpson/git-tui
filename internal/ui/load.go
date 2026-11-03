@@ -273,7 +273,11 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		}
 		cmd = tea.Batch(cmd, m.loadWhy(false)) // the selected run may have just stopped
 	}
-	if keep != "" {
+	switch {
+	case keep != "" && m.inspect && !slices.Contains(m.rowKeys(m.view), keep): // never show another item in its place
+		m.inspect, m.focus = false, paneMain
+		m.flash = "The item you were viewing is gone, so its page closed."
+	case keep != "":
 		m.follow(keep)
 	}
 	m.clampAll()

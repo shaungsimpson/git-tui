@@ -134,6 +134,10 @@ func (r *mdRender) blocks(n ast.Node, first, rest string, tight bool) {
 		if !ok {
 			if skip == 0 {
 				draw(func(p string) { r.block(c, p, rest) })
+			} else if raw := r.innerHTML(c); closedAt(raw, skip) >= 0 { // a </details> within a paragraph or list
+				skip = 0
+			} else {
+				skip += detailsDepth(raw)
 			}
 			continue
 		}
@@ -141,15 +145,15 @@ func (r *mdRender) blocks(n ast.Node, first, rest string, tight bool) {
 		if skip > 0 { // inside a closed section: what follows its end in this block still shows
 			at := closedAt(raw, skip)
 			if at < 0 {
-				skip += strings.Count(strings.ToLower(raw), "<details") - strings.Count(strings.ToLower(raw), "</details")
+				skip += detailsDepth(raw)
 				continue
 			}
 			skip, raw = 0, raw[at:]
 		}
-		if opens, closes := strings.Count(strings.ToLower(raw), "<details"), strings.Count(strings.ToLower(raw), "</details"); opens > closes {
+		if depth := detailsDepth(raw); depth > 0 {
 			// A section starts here, its contents following as blocks of their own.
 			if !r.open {
-				skip = opens - closes
+				skip = depth
 			}
 			draw(func(p string) { r.section(raw, p, rest) })
 			continue
@@ -175,6 +179,32 @@ func closedAt(raw string, depth int) int {
 		}
 	}
 	return -1
+}
+
+// detailsDepth is how many more <details> raw opens than it closes.
+func detailsDepth(raw string) int {
+	return strings.Count(strings.ToLower(raw), "<details") - strings.Count(strings.ToLower(raw), "</details")
+}
+
+// innerHTML is the raw HTML anywhere inside n, in order.
+func (r *mdRender) innerHTML(n ast.Node) string {
+	var b strings.Builder
+	_ = ast.Walk(n, func(c ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch c := c.(type) {
+		case *ast.HTMLBlock:
+			b.WriteString(r.htmlText(c))
+		case *ast.RawHTML:
+			for i := range c.Segments.Len() {
+				seg := c.Segments.At(i)
+				b.Write(seg.Value(r.src))
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	return b.String()
 }
 
 func (r *mdRender) pick(drawn int, first, rest string) string {

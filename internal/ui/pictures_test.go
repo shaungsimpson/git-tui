@@ -153,3 +153,49 @@ func TestPicturesLoadTwoAtATime(t *testing.T) {
 		t.Fatalf("pictures loading at once: %d, want 2", most.Load())
 	}
 }
+
+// Stepping through PRs with J must not leave each page's pictures downloading behind it.
+func TestLeavingAPageCancelsItsPictures(t *testing.T) {
+	real := fetchPic
+	fetchPic = func(ctx context.Context, _ gitx.Source, _ string, _ int) (termimg.Picture, error) {
+		<-ctx.Done() // a download that only ends when cancelled
+		return termimg.Picture{}, ctx.Err()
+	}
+	t.Cleanup(func() { fetchPic = real })
+
+	o := demoOpts()
+	o.Images = true
+	m := setup(t, o, 140, 40)
+	knowSlugs(m)
+	m.repos[0].gh.prs.val = []gitx.PR{{Repo: "backend", Number: 1, Title: "x",
+		Body: "![a](https://github.com/user-attachments/assets/a)\n![b](https://github.com/user-attachments/assets/b)\n![c](https://github.com/user-attachments/assets/c)"}}
+	m.repos[0].gh.prs.loaded, m.repos[0].gh.prs.at = true, clock()
+	m.selectRepo(1)
+	m.view, m.focus, m.inspect = viewPRs, paneDetail, true
+	batch, _ := m.ensurePics()().(tea.BatchMsg)
+	if len(batch) != 3 {
+		t.Fatalf("want 3 picture loads, got %d", len(batch))
+	}
+	msgs := make(chan tea.Msg, len(batch))
+	for _, cmd := range batch {
+		go func() { msgs <- cmd() }()
+	}
+
+	m.inspect = false
+	m.ensurePics() // as the next settled key does
+	for range batch {
+		select {
+		case msg := <-msgs:
+			m.Update(msg) // late answers to cancelled loads
+		case <-time.After(time.Second):
+			t.Fatal("leaving the page should cancel its picture downloads")
+		}
+	}
+	if len(m.pics) != 0 {
+		t.Fatalf("cancelled pictures should be forgotten, not shown as failed: %d left", len(m.pics))
+	}
+	m.inspect = true
+	if batch, _ := m.ensurePics()().(tea.BatchMsg); len(batch) != 3 {
+		t.Fatalf("coming back should load the pictures again, got %d loads", len(batch))
+	}
+}

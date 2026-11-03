@@ -75,10 +75,7 @@ func (m *Model) profileShown() Profile { return m.profileFits(m.footerRows()) }
 
 // profileFits is the mode that fits above a footer of the given number of lines.
 func (m *Model) profileFits(footer int) Profile {
-	body := m.height - 3 - footer // header, separator, status, footer
-	if m.width < 100 {
-		body-- // the repository bar
-	}
+	body := m.bodyFor(footer, 0)
 	switch {
 	case m.profile == ProfileOff:
 		return ProfileOff

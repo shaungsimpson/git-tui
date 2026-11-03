@@ -22,6 +22,19 @@ const (
 	maxBackoff = 10 * time.Minute // a failing load retries after 1, 2, 4, 8, then every 10 minutes
 )
 
+// settleAfter is how long keys must pause before the loads they reveal start; a variable so tests can make it 0.
+var settleAfter = 150 * time.Millisecond
+
+type settledMsg struct{ gen int }
+
+// debounce bumps *gen and returns a tick carrying the new value after d. Its receiver acts only while the value
+// still matches *gen, so a burst of calls, such as a held key, ends in one action d after the last.
+func debounce(gen *int, d time.Duration, msg func(gen int) tea.Msg) tea.Cmd {
+	*gen++
+	g := *gen
+	return tea.Tick(d, func(time.Time) tea.Msg { return msg(g) })
+}
+
 // clock is the time the cadence reads; a variable so tests can move it.
 var clock = time.Now
 
@@ -208,8 +221,8 @@ func (m *Model) onRefresh() tea.Cmd {
 	return tea.Batch(m.ensure(false), m.scheduleRefresh())
 }
 
-// touch records use: a key press, or coming back to the window.
+// touch records use: a key press, or coming back to the window. Each caller loads what is stale.
 func (m *Model) touch() tea.Cmd {
 	m.lastUse = clock()
-	return tea.Batch(m.ensure(false), m.scheduleRefresh())
+	return m.scheduleRefresh()
 }

@@ -110,12 +110,18 @@ func Download(ctx context.Context, raw, token string) ([]byte, error) {
 	return download(ctx, raw, token)
 }
 
+// SendsToken reports whether a download from raw carries the login token, so callers fetch one only then.
+func SendsToken(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Hostname() == githubHost
+}
+
 func download(ctx context.Context, raw, token string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
 		return nil, err
 	}
-	if token != "" && req.URL.Hostname() == githubHost {
+	if token != "" && SendsToken(raw) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := client.Do(req)

@@ -31,17 +31,24 @@ type layout struct {
 }
 
 func (m *Model) layout() layout {
-	l := layout{bodyH: m.height - 3 - m.footerRows() - m.profileRows()} // header, separator, status, footer, profile
+	l := layout{bodyH: m.bodyFor(m.footerRows(), m.profileRows())}
 	if m.width < minW || m.height < minH {
 		l.small = true
 		return l
 	}
 	l.sideW, l.mainW, l.detailW = m.widths()
-	if l.sideW == 0 {
-		l.bar = true
-		l.bodyH--
-	}
+	l.bar = l.sideW == 0
 	return l
+}
+
+// bodyFor is the panes' height under a profile header and above a footer of these heights: the window less the
+// header, separator and status lines, and the repository bar where the sidebar collapses to one.
+func (m *Model) bodyFor(footer, profile int) int {
+	body := m.height - 3 - footer - profile
+	if side, _, _ := m.widths(); side == 0 {
+		body--
+	}
+	return body
 }
 
 // widths are the sidebar, list and preview widths. They depend on the window width alone, so per-row callers
@@ -66,7 +73,7 @@ func (m *Model) listHeight(v viewID) int { return m.rowsIn(v, m.layout().bodyH) 
 func (m *Model) rowsIn(v viewID, bodyH int) int {
 	h := bodyH - 1
 	if v == viewRepo {
-		if info := m.repoInfo(); len(info) > 0 {
+		if info := m.repoInfo(bodyH); len(info) > 0 {
 			h -= len(info) + 1
 		}
 		if m.incomingRows() > 0 {
@@ -107,6 +114,8 @@ func (m *Model) render() string {
 	if m.width == 0 {
 		return ""
 	}
+	m.footerMemo = m.footerRows() // it asks every shortcut whether it applies, and a frame needs it often
+	defer func() { m.footerMemo = 0 }()
 	l := m.layout()
 	if l.small {
 		msg := fmt.Sprintf("Terminal too small (%d×%d).\nResize to at least %d×%d.", m.width, m.height, minW, minH)
@@ -454,7 +463,7 @@ func (m *Model) mainLines(w, h int) []string {
 	title, rows := m.mainContent(w)
 	lines := []string{m.paneTitle(paneMain, " "+title)}
 	if m.view == viewRepo {
-		if info := m.repoInfo(); len(info) > 0 {
+		if info := m.repoInfo(h); len(info) > 0 {
 			lines = append(lines, info...)
 			lines = append(lines, m.st.title.Render(" "+m.repoHeading(*off)))
 		}
@@ -1101,13 +1110,18 @@ func (m *Model) repoHeading(off int) string {
 	return "Incoming from " + clean(s.Upstream) + " · " + count
 }
 
-// repoInfo is the fixed block above the commit list in the Repository view.
-func (m *Model) repoInfo() []string {
+// repoInfo is the fixed block above the commit list in the Repository view, for a pane bodyH tall. It is left out
+// when it would leave fewer than 2 commit rows under the pane title and the list's two headings.
+// It never checks m.view: clampAll sizes the Repository list while another view shows.
+func (m *Model) repoInfo(bodyH int) []string {
 	r := m.selected()
-	if m.view != viewRepo || r == nil || r.cfg.Status != config.StatusOK {
+	if r == nil || r.cfg.Status != config.StatusOK {
 		return nil
 	}
-	return m.summaryLines(r)
+	if info := m.summaryLines(r); bodyH-3-len(info) >= 2 {
+		return info
+	}
+	return nil
 }
 
 func (m *Model) commitDetail(c gitx.Commit) []string {
@@ -1487,13 +1501,13 @@ func (m *Model) footerHints() ([]hint, string) {
 // footerRows is 2 when the shortcuts need a second line and the panes can spare it. The profile header that
 // fits above a one-line footer keeps its rows: the footer's second line gives way first.
 func (m *Model) footerRows() int {
+	if m.footerMemo > 0 {
+		return m.footerMemo
+	}
 	if m.help || m.diff.open || m.scan.open { // they replace the panes and need every row
 		return 1
 	}
-	body := m.height - 5 - rowsOf(m.profileFits(1)) // header, separator, status, two footer lines, profile
-	if m.width < 100 {
-		body-- // the repository bar
-	}
+	body := m.bodyFor(2, rowsOf(m.profileFits(1)))
 	hints, right := m.footerHints()
 	if body < minBodyH || 1+lipgloss.Width(joinHints(hints))+1+lipgloss.Width(right) <= m.width {
 		return 1

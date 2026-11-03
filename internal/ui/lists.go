@@ -47,7 +47,10 @@ func (m *Model) ghScope() []int {
 
 // selectedRun is the deploy run under the cursor in Deploys.
 func (m *Model) selectedRun() (gitx.Run, bool) {
-	if n, cur, _ := m.list(); m.view == viewRuns && !m.cmpOpen() && *cur < n {
+	if m.view != viewRuns || m.cmpOpen() { // before list, which builds every other view's rows too
+		return gitx.Run{}, false
+	}
+	if n, cur, _ := m.list(); *cur < n {
 		return m.runList()[*cur], true
 	}
 	return gitx.Run{}, false

@@ -277,3 +277,27 @@ func TestRunReasonRetriesOnCtrlR(t *testing.T) {
 		t.Fatalf("Ctrl+R should read the reason again at once: %+v", s)
 	}
 }
+
+// Holding j through the sidebar loads only the repository it stops on.
+func TestHeldKeysLoadWhereTheyStop(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "t", "shift+tab")
+	if m.focus != paneSidebar || m.repo != 0 {
+		t.Fatalf("setup: focus %v repo %d", m.focus, m.repo)
+	}
+	settleAfter = time.Hour // keys arrive faster than they settle
+	t.Cleanup(func() { settleAfter = 0 })
+	m.Update(keyMsg("j"))
+	m.Update(keyMsg("j"))
+	if m.repo != 2 || m.repos[0].tags.loading || m.repos[1].tags.loading {
+		t.Fatalf("a held key should not load each repository it passes: repo %d", m.repo)
+	}
+	if _, cmd := m.Update(settledMsg{m.settleGen - 1}); cmd != nil {
+		t.Fatal("an earlier key's pause should start nothing")
+	}
+	_, cmd := m.Update(settledMsg{m.settleGen})
+	drain(m, cmd)
+	if !m.repos[1].tags.loaded || m.repos[0].tags.loaded {
+		t.Fatal("once keys pause, only the repository they stopped on should load")
+	}
+}
