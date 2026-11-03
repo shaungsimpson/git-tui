@@ -13,6 +13,8 @@ const (
 	actView
 	actPageDown
 	actPageUp
+	actTop
+	actBottom
 	actNextItem
 	actPrevItem
 	actBrowse
@@ -78,12 +80,14 @@ func bind(label, desc string, keys ...string) key.Binding {
 var actions = []action{
 	{id: actUp, key: bind("j/k", "move", "k", "up"), hint: true},
 	{id: actDown, key: bind("", "", "j", "down")},
+	{id: actPageDown, key: bind("pgup/pgdn", "page", "pgdown")},
+	{id: actPageUp, key: bind("", "", "pgup")},
+	{id: actTop, key: bind("home/end", "top / bottom", "home")},
+	{id: actBottom, key: bind("", "", "end")},
 	{id: actFocusNext, key: bind("tab", "next / previous pane", "tab"), hint: true, when: (*Model).notPaging},
 	{id: actFocusPrev, key: bind("", "", "shift+tab"), when: (*Model).notPaging}, // tab's label covers it, as j/k does for down
 	{id: actOpen, key: bind("enter", "open", "enter"), hint: true, item: true, group: groupLists, when: (*Model).canOpen},
 	{id: actView, key: bind("v", "view details", "v"), hint: true, item: true, group: groupLists, when: (*Model).canView},
-	{id: actPageDown, key: bind("pgup/pgdn", "page", "pgdown", "space"), group: groupDetail, when: (*Model).paging},
-	{id: actPageUp, key: bind("", "", "pgup"), when: (*Model).paging},
 	{id: actNextItem, key: bind("J/K", "next / previous item", "J", "shift+j"), group: groupDetail, when: (*Model).paging},
 	{id: actPrevItem, key: bind("", "", "K", "shift+k"), when: (*Model).paging},
 	{id: actMarkdown, key: bind("m", "formatted / raw description", "m"), hint: true, group: groupDetail, when: (*Model).canMarkdown},

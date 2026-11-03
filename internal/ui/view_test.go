@@ -88,7 +88,11 @@ func TestHelpListsEveryKey(t *testing.T) {
 		}
 	}
 	m := setup(t, demoOpts(), 60, 16)
-	press(m, "?", "pgdown", "pgdown", "pgdown", "esc", "?")
+	press(m, "?", "end")
+	if m.helpOff == 0 {
+		t.Fatal("end should scroll help to the bottom")
+	}
+	press(m, "home", "pgdown", "pgdown", "esc", "?")
 	if m.helpOff != 0 {
 		t.Fatal("help should open at the top")
 	}

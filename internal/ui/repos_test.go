@@ -29,7 +29,11 @@ func TestManageRepositories(t *testing.T) {
 	if !filepath.IsAbs(m.scan.root) && !strings.HasPrefix(m.scan.root, "~/") || !filepath.IsAbs(m.scan.res.val[0].path) {
 		t.Fatalf("a relative folder should be remembered and saved absolute: %q, %q", m.scan.root, m.scan.res.val[0].path)
 	}
-	press(m, "space", "j", "space", "j", "space", "enter")
+	press(m, "end")
+	if m.scan.cur != 2 {
+		t.Fatalf("end should reach the last folder: cursor %d", m.scan.cur)
+	}
+	press(m, "home", "space", "j", "space", "j", "space", "enter")
 	if got := savedNames(t, path); got != "a,b,group/a" {
 		t.Fatalf("a name already in use should get its parent folder, got %s", got)
 	}

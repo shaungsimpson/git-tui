@@ -197,13 +197,15 @@ The header degrades to what the terminal can show:
 
 ## Keyboard
 
-The footer lists the shortcuts that apply right now. When they do not fit on one line it takes a second, unless that would leave the panes fewer than 10 lines or shrink the profile header; then the others give way first so `?` help stays visible. While the preview pane is shown, the footer leaves the selected row's shortcuts to it. The footer keeps its height while you type a filter or answer a question, so the panes do not jump. `?` lists every key, available or not, grouped: those that work everywhere first, then lists, the detail page and repositories; `j`/`k` and `PgUp`/`PgDn` scroll it when it does not fit.
+The footer lists the shortcuts that apply right now. When they do not fit on one line it takes a second, unless that would leave the panes fewer than 10 lines or shrink the profile header; then the others give way first so `?` help stays visible. While the preview pane is shown, the footer leaves the selected row's shortcuts to it. The footer keeps its height while you type a filter or answer a question, so the panes do not jump. `?` lists every key, available or not, grouped: those that work everywhere first, then lists, the detail page and repositories; `j`/`k`, `PgUp`/`PgDn` and `Home`/`End` scroll it when it does not fit.
 
 | Key               | Action                                                                     |
 |-------------------|----------------------------------------------------------------------------|
 | `j` `k` / `↓` `↑` | Move the selection in the focused pane                                     |
+| `PgUp` / `PgDn`   | Move a page in the focused pane: a screenful of rows in a list or the sidebar, or of text on the detail page, help, a diff and the add screen. On a Mac laptop, `Fn+↑` / `Fn+↓` |
+| `Home` / `End`    | Go to the first or last row, or the top or bottom of the text             |
 | `Tab` / `Shift+Tab` | Move focus between visible panes                                         |
-| `v`               | View the selected item's details on a page of their own, across the whole window: a PR's description, pictures and files, a commit's message, why a deploy run stopped. On the page `j`/`k` scroll, `PgUp`/`PgDn` or `Space` page, `J`/`K` step to the next or previous item, and `o` and `d` still apply |
+| `v`               | View the selected item's details on a page of their own, across the whole window: a PR's description, pictures and files, a commit's message, why a deploy run stopped. On the page `j`/`k` scroll, `PgUp`/`PgDn` page, `Home`/`End` go to the top or bottom, `J`/`K` step to the next or previous item, and `o` and `d` still apply |
 | `Enter`           | From the sidebar, move to the list. In Overview: open the Repository view. In Tags: choose the base tag, then the head tag. In Environments: list commits not yet deployed |
 | `Esc`             | Close the detail page, the comparison, the base selection or the filter    |
 | `/`               | Filter the current list (`Enter` applies, `Esc` cancels). In Pull requests, `is:review` keeps your review requests and `is:ready` your PRs ready to merge |
@@ -214,7 +216,7 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `?`               | Every shortcut, grouped by where it applies                                |
 | `p`               | Show or hide the preview pane (120 columns and wider). Remembered between runs |
 | `F2`              | Toggle the dark and light themes                                           |
-| `d`               | Show a diff: on a pull request, its code changes; on a repository with uncommitted changes (Overview row, sidebar or Repository view), those changes in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Esc` closes |
+| `d`               | Show a diff: on a pull request, its code changes; on a repository with uncommitted changes (Overview row, sidebar or Repository view), those changes in sections for staged, unstaged and untracked. `j`/`k` scroll, `PgUp`/`PgDn` page, `Home`/`End` go to the top or bottom, `Esc` closes |
 | `o`               | In Pull requests and Deploys: open the selected PR or run in your browser (https links only), with `open` on macOS, `wslview` on WSL when it is installed, and `xdg-open` otherwise |
 | `t` / `T` / `Ctrl+T` | Open a new terminal tab, a split to the right, or a split below, at the selected repository's root (Overview row, sidebar or Repository view). Ghostty 1.4 or later on macOS, or Windows Terminal on WSL, outside tmux; elsewhere the keys are hidden |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |

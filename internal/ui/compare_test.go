@@ -115,6 +115,14 @@ func TestDiffScrolls(t *testing.T) {
 	if m.diff.off != 0 {
 		t.Fatalf("scrolling stops at the top: off %d", m.diff.off)
 	}
+	press(m, "end")
+	if last := 40 - (m.layout().bodyH - 1); m.diff.off != last {
+		t.Fatalf("end should reach the bottom: off %d, want %d", m.diff.off, last)
+	}
+	press(m, "home")
+	if m.diff.off != 0 {
+		t.Fatalf("home should reach the top: off %d", m.diff.off)
+	}
 }
 
 func TestTagComparison(t *testing.T) {

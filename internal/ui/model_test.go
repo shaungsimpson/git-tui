@@ -18,10 +18,47 @@ import (
 )
 
 func TestKeyStringsMatchBindings(t *testing.T) {
-	for _, s := range []string{"tab", "shift+tab", "enter", "esc", "f2", "ctrl+r", "ctrl+t", "T", "j", "?", "/", "pgdown", "pgup"} {
+	for _, s := range []string{"tab", "shift+tab", "enter", "esc", "f2", "ctrl+r", "ctrl+t", "T", "j", "?", "/", "pgdown", "pgup", "home", "end"} {
 		if got := keyMsg(s).String(); got != s {
 			t.Errorf("key %q stringifies as %q", s, got)
 		}
+	}
+}
+
+func TestPageKeysMoveEveryPane(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 16)
+	press(m, "g", "a")
+	n, h := len(m.activity()), m.listHeight(viewActivity)
+	if n <= h {
+		t.Fatalf("setup: activity should need paging at this height: %d rows, %d shown", n, h)
+	}
+	press(m, "pgdown")
+	if m.cursor[viewActivity] != h {
+		t.Fatalf("pgdn should move a page of rows: cursor %d, want %d", m.cursor[viewActivity], h)
+	}
+	if off := m.offset[viewActivity]; m.cursor[viewActivity] < off || m.cursor[viewActivity] >= off+h {
+		t.Fatal("pgdn should keep the cursor on screen")
+	}
+	press(m, "pgup")
+	if m.cursor[viewActivity] != 0 {
+		t.Fatalf("pgup should move back a page: cursor %d", m.cursor[viewActivity])
+	}
+	press(m, "end")
+	if m.cursor[viewActivity] != n-1 {
+		t.Fatalf("end should reach the last row: cursor %d, want %d", m.cursor[viewActivity], n-1)
+	}
+	press(m, "home")
+	if m.cursor[viewActivity] != 0 || m.offset[viewActivity] != 0 {
+		t.Fatal("home should reach the first row")
+	}
+
+	press(m, "shift+tab", "end")
+	if m.focus != paneSidebar || m.repo != len(m.repos) {
+		t.Fatalf("end in the sidebar should select the last repository: focus %v repo %d", m.focus, m.repo)
+	}
+	press(m, "home")
+	if m.repo != 0 {
+		t.Fatalf("home in the sidebar should select all repositories: repo %d", m.repo)
 	}
 }
 
@@ -270,13 +307,21 @@ func TestDetailPageScrollsAndStacksDiff(t *testing.T) {
 	if end == 0 {
 		t.Fatal("setup: the PR page should need scrolling at this height")
 	}
-	press(m, "pgdown", "space", "pgdown", "pgdown", "pgdown")
+	press(m, "pgdown", "pgdown", "pgdown", "pgdown", "pgdown")
 	if m.detOff != end {
 		t.Fatalf("paging stops at the end: off %d, want %d", m.detOff, end)
 	}
 	press(m, "pgup", "pgup", "pgup", "pgup", "pgup")
 	if m.detOff != 0 {
 		t.Fatalf("paging stops at the top: off %d", m.detOff)
+	}
+	press(m, "end")
+	if m.detOff != end {
+		t.Fatalf("end should reach the bottom: off %d, want %d", m.detOff, end)
+	}
+	press(m, "home")
+	if m.detOff != 0 {
+		t.Fatalf("home should reach the top: off %d", m.detOff)
 	}
 	press(m, "d")
 	if !m.diff.open || !m.inspect {
@@ -487,6 +532,9 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(m.footer()), "n reviews / ready to merge") {
 		t.Fatal("demo footer should say how to reach the review and ready badges")
+	}
+	if help := ansi.Strip(strings.Join(m.helpBody(), "\n")); !strings.Contains(help, "pgup/pgdn") || !strings.Contains(help, "top / bottom") {
+		t.Fatal("demo help should list the page and top / bottom keys")
 	}
 
 	press(m, "g", "p")

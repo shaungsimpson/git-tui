@@ -312,11 +312,17 @@ func (m *Model) scanKey(s string) tea.Cmd {
 	case "tab":
 		return m.editRoot()
 	case "j", "down":
-		m.scan.cur = min(m.scan.cur+1, max(0, len(rows)-1))
-		m.keepScanVisible()
+		m.moveScan(1)
 	case "k", "up":
-		m.scan.cur = max(m.scan.cur-1, 0)
-		m.keepScanVisible()
+		m.moveScan(-1)
+	case "pgdown":
+		m.moveScan(m.scanRows())
+	case "pgup":
+		m.moveScan(-m.scanRows())
+	case "home":
+		m.moveScan(-far)
+	case "end":
+		m.moveScan(far)
 	case "space":
 		if m.scan.fix < 0 && m.scan.cur < len(rows) && !m.configured(rows[m.scan.cur].path) {
 			p := rows[m.scan.cur].path
@@ -331,8 +337,15 @@ func (m *Model) scanKey(s string) tea.Cmd {
 	return nil
 }
 
+func (m *Model) moveScan(d int) {
+	m.scan.cur = min(max(m.scan.cur+d, 0), max(0, len(m.scan.res.val)-1))
+	m.keepScanVisible()
+}
+
+func (m *Model) scanRows() int { return max(1, m.layout().bodyH-3) }
+
 func (m *Model) keepScanVisible() {
-	h := max(1, m.layout().bodyH-3)
+	h := m.scanRows()
 	m.scan.off = min(max(m.scan.off, m.scan.cur-h+1), m.scan.cur)
 }
 

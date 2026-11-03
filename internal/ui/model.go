@@ -360,37 +360,30 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
-	if m.help {
-		page := max(1, m.layout().bodyH-2)
-		switch s {
-		case "esc", "?":
-			m.help = false
-		case "f2":
-			m.do(actTheme)
-		case "j", "down":
-			m.scrollHelp(1)
-		case "k", "up":
-			m.scrollHelp(-1)
-		case "pgdown", "space":
-			m.scrollHelp(page)
-		case "pgup":
-			m.scrollHelp(-page)
+	if m.help || m.diff.open {
+		scroll, page := m.scrollDiff, max(1, m.layout().bodyH-2)
+		if m.help {
+			scroll = m.scrollHelp
 		}
-		return nil
-	}
-	if m.diff.open {
-		page := max(1, m.layout().bodyH-2)
-		switch s {
-		case "esc", "d":
+		switch {
+		case m.help && (s == "esc" || s == "?"):
+			m.help = false
+		case m.help && s == "f2":
+			m.do(actTheme)
+		case !m.help && (s == "esc" || s == "d"):
 			m.closeDiff()
-		case "j", "down":
-			m.scrollDiff(1)
-		case "k", "up":
-			m.scrollDiff(-1)
-		case "pgdown", "space":
-			m.scrollDiff(page)
-		case "pgup":
-			m.scrollDiff(-page)
+		case s == "j" || s == "down":
+			scroll(1)
+		case s == "k" || s == "up":
+			scroll(-1)
+		case s == "pgdown":
+			scroll(page)
+		case s == "pgup":
+			scroll(-page)
+		case s == "home":
+			scroll(-far)
+		case s == "end":
+			scroll(far)
 		}
 		return nil
 	}
@@ -483,12 +476,14 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actView:
 		m.inspect, m.focus, m.detOff = true, paneDetail, 0
 		return tea.Batch(m.ensurePics(), m.ensure(false)) // a stopped run's reasons load once the page shows them
-	case actPageDown, actPageUp:
-		page := max(1, m.layout().bodyH-2)
-		if id == actPageUp {
-			page = -page
-		}
-		m.detOff = min(max(0, m.detOff+page), m.maxDetailOff())
+	case actPageDown:
+		return m.move(m.page())
+	case actPageUp:
+		return m.move(-m.page())
+	case actTop:
+		return m.move(-far)
+	case actBottom:
+		return m.move(far)
 	case actNextItem, actPrevItem:
 		n, cur, off := m.list()
 		if n == 0 { // a refresh can empty the list behind the page
@@ -758,6 +753,17 @@ func (m *Model) move(d int) tea.Cmd {
 		m.detOff, m.openFor = 0, ""
 	}
 	return nil
+}
+
+// far is a move past either end; moves clamp, so it lands on the first or last row.
+const far = 1 << 30
+
+// page is a screenful for the focused pane: a list's visible rows, or text less a line kept for context.
+func (m *Model) page() int {
+	if m.focus == paneMain && !m.inspect {
+		return max(1, m.listHeight(m.view))
+	}
+	return max(1, m.layout().bodyH-2)
 }
 
 func (m *Model) selectRepo(i int) {
