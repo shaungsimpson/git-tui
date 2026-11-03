@@ -68,16 +68,16 @@ func main() {
 	// Demo mode never touches the network: its avatar and PR pictures are drawn from fixtures.
 	opts := ui.Options{Demo: *demo, Images: termimg.Supported(os.Getenv),
 		Tabs: ui.CanOpenTabs(os.Getenv), Profile: profile, UTC: state.UTC, NoPreview: state.NoPreview, Dates: state.Dates,
-		StatePath: statePath, Sorts: state.Sorts, Version: v, Tools: map[string]string{}, Executable: exe, Build: build, Source: src, ReleaseCache: cache}
+		StatePath: statePath, Sorts: state.Sorts, Group: state.Group, Version: v, Tools: map[string]string{}, Executable: exe, Build: build, Source: src, ReleaseCache: cache}
 	if cache != "" {
 		opts.Release = update.LoadCache(cache, time.Now()) // an unreadable cache only means checking again
 	}
 	if *demo { // fixtures, so the demo and its screenshots never show this machine's paths
 		opts.Tools = map[string]string{"git": "/usr/bin/git", "gh": "/usr/bin/gh"}
 		for _, name := range gitx.DemoRepos {
-			opts.Repos = append(opts.Repos, config.Repo{Name: name, Path: "(demo)/" + name, Status: config.StatusOK})
+			opts.Repos = append(opts.Repos, config.Repo{Name: name, Path: "(demo)/" + name, Group: gitx.DemoGroups[name], Status: config.StatusOK})
 		}
-		opts.Repos = append(opts.Repos, config.Repo{Name: "infra", Path: "(demo)/infra", Status: config.StatusMissing, Err: "directory not found: (demo)/infra"})
+		opts.Repos = append(opts.Repos, config.Repo{Name: "infra", Path: "(demo)/infra", Group: gitx.DemoGroups["infra"], Status: config.StatusMissing, Err: "directory not found: (demo)/infra"})
 	} else {
 		for _, t := range []string{"git", "gh"} {
 			if p, err := exec.LookPath(t); err == nil {

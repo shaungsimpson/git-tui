@@ -86,8 +86,8 @@ func (m *Model) hasAlerts() bool {
 // watchReviews pulses the review badge when the count rises. The count climbing while every repository's PRs
 // first load is not news, so nothing pulses until each has been read once.
 func (m *Model) watchReviews() tea.Cmd {
-	for _, r := range m.repos {
-		if r.cfg.Status == config.StatusOK && r.gh.prs.tried.IsZero() {
+	for _, i := range m.shown() {
+		if r := m.repos[i]; r.cfg.Status == config.StatusOK && r.gh.prs.tried.IsZero() {
 			m.alertSet = false
 			return nil
 		}

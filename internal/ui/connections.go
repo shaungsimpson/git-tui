@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"charm.land/lipgloss/v2"
 
@@ -89,13 +90,19 @@ func (m *Model) connections() []connRow {
 		rows = append(rows, row)
 	}
 	// One row per repository follows the configuration row; repoRows relies on that order.
-	for _, r := range m.repos {
+	for i, r := range m.repos {
 		row := connRow{"·", "  " + clean(r.cfg.Name), "ok", levelOK, []string{"Path: " + clean(config.Tilde(r.cfg.Path)), ""}}
+		if r.cfg.Group != "" {
+			row.detail = slices.Insert(row.detail, 1, "Group: "+clean(r.cfg.Group))
+		}
 		if r.cfg.Status != config.StatusOK {
 			row.glyph, row.state, row.level = "!", r.cfg.Status.String(), levelWarn
 			row.detail = append(row.detail, clean(r.cfg.Err), "f finds a moved folder.", "")
 		}
-		row.detail = append(row.detail, "r renames, x removes, K and J move it up and down.")
+		if !m.inGroup(i) { // listed so it can be regrouped, but nothing loads for it
+			row.glyph, row.state, row.level = "-", "hidden by the group", levelOff
+		}
+		row.detail = append(row.detail, "r renames, e sets its group, x removes, K and J move it up and down.")
 		rows = append(rows, row)
 	}
 

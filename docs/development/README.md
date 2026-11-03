@@ -61,7 +61,7 @@ internal/update      which build is running (Go build metadata), version compari
 internal/ui          Bubble Tea model and key dispatch (model.go), asynchronous loads (load.go), list contents (lists.go),
                      diff and commit comparisons (compare.go), PR pictures (pictures.go), browser and terminal tabs (open.go),
                      rendering (view.go), key table (keys.go), profile header (profile.go), refresh cadence (refresh.go),
-                     managing repositories (repos.go), the Connections view (connections.go), colours (theme.go),
+                     managing repositories (repos.go), groups (groups.go), the Connections view (connections.go), colours (theme.go),
                      review, ready-to-merge and update badges (alerts.go), the update details (update.go);
                      tests sit beside the code they cover (load_test.go for load.go), with shared helpers in helpers_test.go
 internal/termimg     picture downloads, Kitty graphics, colour-block and character drawing (art.go)

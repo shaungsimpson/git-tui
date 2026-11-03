@@ -32,6 +32,9 @@ const (
 	actAlerts
 	actFix
 	actRename
+	actGroup
+	actNextGroup
+	actPrevGroup
 	actRemove
 	actMoveUp
 	actMoveDown
@@ -92,9 +95,12 @@ var actions = []action{
 	{id: actAdd, key: bind("a", "add repositories", "a"), hint: true, group: groupRepos, when: (*Model).canAdd},
 	{id: actFix, key: bind("f", "find moved folder", "f"), hint: true, item: true, group: groupRepos, when: (*Model).canFix},
 	{id: actRename, key: bind("r", "rename repository", "r"), item: true, group: groupRepos, when: (*Model).canManage},
+	{id: actGroup, key: bind("e", "set group", "e"), item: true, group: groupRepos, when: (*Model).canManage},
 	{id: actRemove, key: bind("x", "remove repository", "x"), item: true, group: groupRepos, when: (*Model).canManage},
 	{id: actMoveUp, key: bind("K/J", "move repository up/down", "K", "shift+k"), item: true, group: groupRepos, when: (*Model).canManage},
 	{id: actMoveDown, key: bind("", "", "J", "shift+j"), when: (*Model).canManage},
+	{id: actNextGroup, key: bind("[/]", "next / previous group", "]"), hint: true, when: (*Model).hasGroups},
+	{id: actPrevGroup, key: bind("", "", "["), when: (*Model).hasGroups},
 	{id: actGo, key: bind("g", "go to view…", "g")},
 	{id: actAlerts, key: bind("n", "reviews / ready to merge", "n"), hint: true, group: groupLists, when: (*Model).hasAlerts},
 	{id: actHelp, key: bind("?", "help", "?"), hint: true, basic: true},

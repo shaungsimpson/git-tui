@@ -41,6 +41,7 @@ func (s Status) String() string {
 type Repo struct {
 	Name   string `json:"name"`
 	Path   string `json:"path"`
+	Group  string `json:"group,omitempty"` // repositories with the same group can be shown on their own
 	Status Status `json:"-"`
 	Err    string `json:"-"`
 }
@@ -94,6 +95,7 @@ func Load(path string) (Config, error) {
 	}
 	for i := range cfg.Repositories {
 		r := &cfg.Repositories[i]
+		r.Group = strings.TrimSpace(r.Group) // as saving does, so "work " written by hand is not a second work
 		named := r.Name != ""
 		validate(r)
 		if !named && taken[r.Name] { // two folders called api: as when adding, the second gets its parent folder
@@ -150,7 +152,7 @@ func Save(path string, c Config) error {
 			return fmt.Errorf("two repositories are called %s", r.Name)
 		}
 		seen[r.Name] = true
-		out.Repositories = append(out.Repositories, Repo{Name: r.Name, Path: Tilde(r.Path)})
+		out.Repositories = append(out.Repositories, Repo{Name: r.Name, Path: Tilde(r.Path), Group: strings.TrimSpace(r.Group)})
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

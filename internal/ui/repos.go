@@ -138,7 +138,10 @@ func (m *Model) applyRepos(next []config.Repo, done string) tea.Cmd {
 	m.closeDiff()
 	m.resetCompare(viewOverview) // no view owns it
 	m.repo = slices.IndexFunc(m.repos, func(r *repoState) bool { return r.cfg.Path == sel }) + 1
-	m.clampAll()
+	if !slices.Contains(m.groups(), m.group) { // its last repository left it
+		m.group = ""
+	}
+	m.setGroup(m.group)
 	m.flash = done
 	return m.ensure(false)
 }
@@ -151,7 +154,7 @@ func (m *Model) changedOnDisk() bool {
 		return len(m.repos) > 0
 	}
 	return err != nil || !slices.EqualFunc(disk.Repositories, m.repos, func(d config.Repo, r *repoState) bool {
-		return d.Name == r.cfg.Name && d.Path == r.cfg.Path
+		return d.Name == r.cfg.Name && d.Path == r.cfg.Path && d.Group == r.cfg.Group
 	})
 }
 

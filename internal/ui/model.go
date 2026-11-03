@@ -75,6 +75,7 @@ type Options struct {
 	ReleaseCache string        // where update checks are remembered; empty in demo mode and tests
 	Tools        map[string]string
 	Sorts        map[string]string // each list's saved sort, by sortKeys
+	Group        string            // the saved group to show; one that no longer exists shows all
 }
 
 type Model struct {
@@ -91,7 +92,8 @@ type Model struct {
 
 	view    viewID
 	focus   paneID
-	repo    int // 0 = all repositories, i+1 = repos[i]
+	repo    int    // 0 = all repositories, i+1 = repos[i]
+	group   string // only repositories in this group are shown and loaded; empty shows all
 	cursor  [viewCount]int
 	sorts   [viewCount]int // each view's position in sortsOf
 	offset  [viewCount]int
@@ -114,6 +116,9 @@ type Model struct {
 	filtering bool
 	prevFilt  string
 	renaming  bool
+	grouping  bool     // the selected repository's group is being typed
+	groupTabs []string // the groups tab cycles through, matching what was typed before the first tab
+	groupTab  int
 
 	scan      scanState
 	confirm   string         // a yes/no question in the footer
@@ -157,6 +162,9 @@ func New(o Options) *Model {
 	}
 	for _, r := range o.Repos {
 		m.repos = append(m.repos, newRepo(r))
+	}
+	if slices.Contains(m.groups(), o.Group) {
+		m.group = o.Group
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.input = textinput.New()
@@ -214,6 +222,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.filtering {
 				m.setFilter(m.input.Value())
 			}
+			m.groupTabs = nil // as typing does, pasting starts a new completion
 			return m, tea.Batch(cmd, m.schedulePoll())
 		}
 	case picMsg:
@@ -306,6 +315,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return cmd
+	}
+	if m.grouping {
+		return m.groupKey(msg)
 	}
 	if m.scan.open && m.scan.typing {
 		switch s {
@@ -517,6 +529,12 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return m.openScan(m.connRepo())
 	case actRename:
 		return m.startRename()
+	case actGroup:
+		return m.startGroup()
+	case actNextGroup:
+		return m.cycleGroup(1)
+	case actPrevGroup:
+		return m.cycleGroup(-1)
 	case actRemove:
 		m.askRemove()
 	case actMoveUp:
@@ -694,11 +712,17 @@ func (m *Model) cycleFocus(dir int) {
 func (m *Model) move(d int) tea.Cmd {
 	switch m.focus {
 	case paneSidebar:
-		next := min(max(m.repo+d, 0), len(m.repos))
-		if next == m.repo {
+		shown := m.shown()
+		pos := slices.Index(shown, m.repo-1) + 1
+		next := min(max(pos+d, 0), len(shown))
+		if next == pos {
 			return nil
 		}
-		m.selectRepo(next)
+		if next == 0 {
+			m.selectRepo(0)
+		} else {
+			m.selectRepo(shown[next-1] + 1)
+		}
 		return m.ensure(false)
 	case paneDetail:
 		m.detOff = min(max(0, m.detOff+d), m.maxDetailOff())
@@ -800,7 +824,7 @@ func (m *Model) back() {
 }
 
 // typing reports whether a text input has the keyboard.
-func (m *Model) typing() bool { return m.filtering || m.renaming || m.scan.typing }
+func (m *Model) typing() bool { return m.filtering || m.renaming || m.grouping || m.scan.typing }
 
 func (m *Model) filterable() bool {
 	switch m.view {

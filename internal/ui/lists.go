@@ -28,11 +28,7 @@ func (m *Model) scope() []int {
 	if m.repo > 0 {
 		return []int{m.repo - 1}
 	}
-	var all []int
-	for i := range m.repos {
-		all = append(all, i)
-	}
-	return all
+	return m.shown()
 }
 
 // ghScope is the selected repositories with each GitHub repository once: the first folder cloned from it
@@ -159,8 +155,8 @@ func runRank(r gitx.Run) int {
 
 func (m *Model) overviewRows() []int {
 	var rows []int
-	for i, r := range m.repos {
-		if match(m.filters[viewOverview], r.cfg.Name, r.summary.val.Branch) {
+	for _, i := range m.shown() {
+		if r := m.repos[i]; match(m.filters[viewOverview], r.cfg.Name, r.summary.val.Branch) {
 			rows = append(rows, i)
 		}
 	}

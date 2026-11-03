@@ -18,6 +18,7 @@ type State struct {
 	Profile   string            `json:"profile,omitempty"`
 	ScanRoot  string            `json:"scanRoot,omitempty"` // where adding repositories last looked
 	Sorts     map[string]string `json:"sorts,omitempty"`    // each list's sort, by view
+	Group     string            `json:"group,omitempty"`    // the group shown; empty shows every repository
 }
 
 // StatePath is $XDG_STATE_HOME/git-tui/state.json, which defaults to ~/.local/state/git-tui/state.json.

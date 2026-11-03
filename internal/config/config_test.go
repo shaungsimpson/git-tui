@@ -170,7 +170,7 @@ func TestLoadNamesSameNamedFoldersApart(t *testing.T) {
 func TestSaveRoundTripsAndKeepsBackup(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	p := write(t, `{"repositories":[{"name":"old","path":"/old"}]}`)
-	want := []Repo{{Name: "api", Path: filepath.Join(home, "Code", "api")}, {Name: "web", Path: "/srv/web"}}
+	want := []Repo{{Name: "api", Path: filepath.Join(home, "Code", "api"), Group: " work "}, {Name: "web", Path: "/srv/web"}}
 	if err := Save(p, Config{Repositories: want}); err != nil {
 		t.Fatal(err)
 	}
@@ -180,6 +180,12 @@ func TestSaveRoundTripsAndKeepsBackup(t *testing.T) {
 	cfg, err := Load(p)
 	if err != nil || len(cfg.Repositories) != 2 || cfg.Repositories[0].Path != want[0].Path || cfg.Repositories[1].Name != "web" {
 		t.Fatalf("got %+v, %v", cfg, err)
+	}
+	if g := cfg.Repositories[0].Group; g != "work" {
+		t.Fatalf("a group should be saved trimmed, got %q", g)
+	}
+	if data, _ := os.ReadFile(p); strings.Count(string(data), `"group"`) != 1 {
+		t.Fatalf("a repository with no group should leave the key out:\n%s", data)
 	}
 	if bak, _ := os.ReadFile(p + ".bak"); !strings.Contains(string(bak), `"old"`) {
 		t.Fatalf("the previous file should be kept as .bak, got %q", bak)
@@ -333,5 +339,12 @@ func TestSaveFollowsAChainOfLinks(t *testing.T) {
 	}
 	if err := Save(filepath.Join(dir, "loop"), Config{}); err == nil {
 		t.Fatal("a link loop should be refused, not replaced")
+	}
+}
+
+func TestLoadTrimsGroups(t *testing.T) {
+	cfg, err := Load(write(t, `{"repositories":[{"name":"api","path":"/api","group":"work "}]}`))
+	if err != nil || cfg.Repositories[0].Group != "work" {
+		t.Fatalf("a group written by hand should load trimmed: %+v, %v", cfg, err)
 	}
 }

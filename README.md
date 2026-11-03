@@ -79,8 +79,9 @@ The configuration file is a small JSON file:
 ```json
 {
   "repositories": [
-    { "name": "backend", "path": "~/Code/backend" },
-    { "name": "frontend", "path": "~/Code/frontend" }
+    { "name": "backend", "path": "~/Code/backend", "group": "work" },
+    { "name": "frontend", "path": "~/Code/frontend", "group": "work" },
+    { "name": "dotfiles", "path": "~/Code/dotfiles", "group": "personal" }
   ]
 }
 ```
@@ -91,7 +92,7 @@ The file is selected in this order:
 2. `$GIT_TUI_CONFIG`
 3. `$XDG_CONFIG_HOME/git-tui/config.json`, which defaults to `~/.config/git-tui/config.json`
 
-`~` is expanded. Each repository is validated on its own: a missing directory or a directory without `.git` is marked unavailable, and the app still opens. If no configuration file exists, the app opens and offers to add repositories, creating the file when you do. You can also write it by hand; start from `examples/config.example.json`. `name` is optional: a repository without one is named after its folder, and when two folders share a name, the later one gets its parent folder in front (`personal/api`). Without a home folder (and no `-config` or `$GIT_TUI_CONFIG`), there is no configuration file, and nothing is remembered or cached.
+`~` is expanded. Each repository is validated on its own: a missing directory or a directory without `.git` is marked unavailable, and the app still opens. If no configuration file exists, the app opens and offers to add repositories, creating the file when you do. You can also write it by hand; start from `examples/config.example.json`. `name` is optional: a repository without one is named after its folder, and when two folders share a name, the later one gets its parent folder in front (`personal/api`). `group` is optional too: any name you like, one per repository, which lets you show that group on its own (see [Groups](#groups)). Versions of git-tui before groups refuse a file that uses `group`. Without a home folder (and no `-config` or `$GIT_TUI_CONFIG`), there is no configuration file, and nothing is remembered or cached.
 
 ## Managing repositories
 
@@ -101,6 +102,7 @@ The Connections view (`g c`) lists each configured repository under "Repository 
 |-----|--------|
 | `a` | Add repositories (also offered from any view while none are configured) |
 | `r` | Rename the selected repository. Names must be unique |
+| `e` | Set its group. `Tab` cycles the existing groups that start with what you typed; a new name makes a new group, one matching an existing group in another case joins it, and an empty one takes the repository out of its group |
 | `x` | Remove it from the list, after a `y` to confirm. The folder is not touched |
 | `K` / `J` | Move it up or down; the sidebar and Overview follow this order |
 | `f` | On a missing repository: find its folder again |
@@ -113,9 +115,13 @@ Each change is saved straight away. A repository keeps what it has already loade
 
 You can configure two folders cloned from the same GitHub repository, such as a second checkout or a worktree on another branch. Each keeps its own branch, status, commits and diff. They share the GitHub data: pull requests, environments and deploys load once and are listed once, under the first folder's name, and the header counts them once. Paths under your home folder are written with `~`. The previous file is kept beside it as `config.json.bak`. If `config.json` is a link (into a dotfiles repository, say), the file it points to is written and the link stays, even when that file does not exist yet. If the file changed since git-tui loaded it, such as an edit by hand, nothing is saved and the status line asks you to restart, so your edit is not lost. Before anything is replaced, the new file is read back the way the app reads it at start-up, so a change from inside the app cannot leave a file it would reject. If the configuration failed to load (for example a typo in the JSON), these keys are not offered: fix the file by hand, so nothing you wrote is overwritten.
 
+### Groups
+
+Once a repository has a group, `]` and `[` cycle what is shown: all repositories, then each group, A to Z. Repositories without a group show only under all. A hidden repository leaves the sidebar, every view and the header counts and badges, and nothing loads for it: no git and no `gh` calls. Connections still lists it, marked `hidden by the group`, so you can change its group. The sidebar's title names the group shown and how many of the repositories it holds (`Repositories · work 4/5`). Showing a group reloads its repositories' local Git data straight away; GitHub data reloads only if it is more than a minute old, so switching back and forth makes no extra `gh` calls. When the selected repository is hidden, the selection moves to all repositories. When the last repository leaves the group shown, all are shown again.
+
 ## Remembered preferences
 
-The time zone (`u`), the date format (`w`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the date format (`w`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`), the group shown (`]` and `[`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
@@ -214,7 +220,8 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
 | `w`               | Cycle how list rows show dates: numeric (`2026-03-02 06:00`, without the year on narrow lists), relative (`3h ago`, the date once it is a week old), short (`2 Mar 06:00`) or weekday (`Mon 2 Mar 06:00`). Dates from an earlier year show the year instead of the time. Detail pages always show the exact time and how long ago. Remembered between runs |
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
-| `a` `r` `x` `K` `J` `f` | In Connections: add, rename, remove, reorder or find repositories. See [Managing repositories](#managing-repositories) |
+| `]` / `[`         | Show the next or previous group: all repositories, then each group. Offered once a repository has a group. See [Groups](#groups). Remembered between runs |
+| `a` `r` `e` `x` `K` `J` `f` | In Connections: add, rename, group, remove, reorder or find repositories. See [Managing repositories](#managing-repositories) |
 | `Ctrl+C`          | Quit                                                                       |
 
 ![The diff of a pull request, opened with d](docs/images/diff.webp)
@@ -238,7 +245,7 @@ While the filter, rename or folder input is open, all typing and pasted text go 
 - GitHub calls go only to a remote whose host is github.com itself (or, over SSH, a host alias such as `github.com-work`).
 - Pull requests are read with `gh pr list`, deployments with `gh api graphql`, deploy runs with `gh run list`, why a selected run failed or was cancelled with `gh api graphql` (its jobs' failure annotations, read once per run, when its detail page is open), how many commits the Repository view's branch has on GitHub past your last fetch with `gh api repos/…/compare` (for the repository on screen only, when its upstream is on `origin`), and a pull request's diff with `gh pr diff` (20-second timeout, or 60 seconds for the pull request and run lists, which `gh` fetches 100 at a time; up to 300 open PRs, 100 environments, the newest 50 deployments per environment and the newest 300 workflow runs).
 - A deploy run is a run of a workflow named "deploy" (except pull request checks), or of the same workflow, trigger and branch as a run that recorded a GitHub deployment. That covers pipelines such as a main-branch CI/CD workflow without counting its pull request runs.
-- Data on screen refreshes by itself when it is stale: local Git data after 5 seconds, GitHub data (pull requests, environments, deploys) after 1 minute, and your GitHub profile after 30 minutes. Staleness is checked on every key press, when you come back to the window, when it is resized, and on a 1-minute idle tick while the window is focused. The tick pauses while the window is in the background and after 10 minutes without a key press, so an open but unused window makes no `gh` calls. Every repository's pull requests and your GitHub profile always count as on screen, since the review and ready-to-merge badges show in every header mode. With the profile header shown, every repository's commits and status do too, since the header counts them; with it off, the rest refreshes only for the current view. The right of the tab bar says how old the data is (`Updated 3m ago`), or `Updating…` while a refresh runs; when the tabs need the room it shortens to `3m ago` (or `Just now`), then gives way.
+- Data on screen refreshes by itself when it is stale: local Git data after 5 seconds, GitHub data (pull requests, environments, deploys) after 1 minute, and your GitHub profile after 30 minutes. Staleness is checked on every key press, when you come back to the window, when it is resized, and on a 1-minute idle tick while the window is focused. The tick pauses while the window is in the background and after 10 minutes without a key press, so an open but unused window makes no `gh` calls. Repositories hidden by the group shown never count as on screen (see [Groups](#groups)). Every other repository's pull requests and your GitHub profile always count as on screen, since the review and ready-to-merge badges show in every header mode. With the profile header shown, every repository's commits and status do too, since the header counts them; with it off, the rest refreshes only for the current view. The right of the tab bar says how old the data is (`Updated 3m ago`), or `Updating…` while a refresh runs; when the tabs need the room it shortens to `3m ago` (or `Just now`), then gives way.
 - Deploys also reloads by itself while a deploy is queued or running: every minute for its first 30 minutes, then every 5 minutes, and every 15 minutes once it has gone on for 2 hours (a run waiting for an approval or a free runner can wait for days). The newest unfinished run sets the pace, and runs the idle refresh has just reloaded are skipped. It stops when nothing is running, when you leave the view, when a reload fails, or while the window is in the background and unused for 10 minutes; the next key, or returning to the window, starts it again. Nothing is written to GitHub.
 - Pictures in PR descriptions are drawn in the terminal in Ghostty and kitty (Kitty graphics protocol with Unicode placeholders), not inside tmux; other terminals, including WezTerm for now, show the picture's name instead. Only PNG, JPEG and GIF pictures hosted on GitHub are downloaded (on github.com, only from its attachments folder), up to 10 MB and 16 megapixels each, two at a time, once the PR's detail page is open. Your `gh` login token is sent to github.com only, because attachments in private repositories need it; it is not sent on to GitHub's storage host. Anything else, such as SVG or images on other sites, is named in the text instead. Demo mode never downloads pictures; it draws generated ones.
 - A failed load keeps the last good data on screen and retries by itself after 1, 2, 4 and 8 minutes, then every 10 minutes; Ctrl+R retries at once, pictures and your avatar included, and the status line shows a `ctrl+r retry` hint.

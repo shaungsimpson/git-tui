@@ -505,6 +505,10 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.render()), "fetched 12d ago") {
 		t.Fatal("demo Overview should show a stale fetch")
 	}
+	if press(m, "]"); !strings.Contains(ansi.Strip(m.render()), " personal 1/5") {
+		t.Fatal("demo should have groups to cycle through")
+	}
+	press(m, "[")
 	m.repo = 1 // backend, whose last fetch saw commits it has not pulled
 	press(m, "g", "r")
 	if out := ansi.Strip(m.render()); !strings.Contains(out, "Incoming from") || !strings.Contains(out, "newer on GitHub") {

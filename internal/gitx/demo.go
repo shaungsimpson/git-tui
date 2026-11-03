@@ -13,6 +13,9 @@ import (
 // DemoRepos are the repository names the demo fixtures know about. "legacy-api" deliberately fails.
 var DemoRepos = []string{"backend", "frontend", "personal-site", "legacy-api"}
 
+// DemoGroups puts the demo repositories in groups, by name; the missing "infra" is in work too.
+var DemoGroups = map[string]string{"backend": "work", "frontend": "work", "legacy-api": "work", "infra": "work", "personal-site": "personal"}
+
 // DemoFolders are what adding repositories finds in demo mode, relative to the folder it looks in: one already
 // configured, two new (acme-mobile not pushed to GitHub yet), one whose name clashes, and the missing "infra"
 // repository moved to a new folder.

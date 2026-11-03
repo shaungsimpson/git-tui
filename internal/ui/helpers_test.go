@@ -26,9 +26,9 @@ func TestMain(m *testing.M) {
 func demoOpts() Options {
 	o := Options{Source: gitx.Demo{}, Demo: true, Build: gitx.DemoBuild, Tools: map[string]string{"git": "/usr/bin/git"}}
 	for _, n := range gitx.DemoRepos {
-		o.Repos = append(o.Repos, config.Repo{Name: n, Path: "/demo/" + n, Status: config.StatusOK})
+		o.Repos = append(o.Repos, config.Repo{Name: n, Path: "/demo/" + n, Group: gitx.DemoGroups[n], Status: config.StatusOK})
 	}
-	o.Repos = append(o.Repos, config.Repo{Name: "infra", Path: "/demo/infra", Status: config.StatusMissing, Err: "directory not found"})
+	o.Repos = append(o.Repos, config.Repo{Name: "infra", Path: "/demo/infra", Group: gitx.DemoGroups["infra"], Status: config.StatusMissing, Err: "directory not found"})
 	return o
 }
 

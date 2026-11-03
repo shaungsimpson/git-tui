@@ -326,7 +326,8 @@ func (m *Model) header() string {
 }
 
 func (m *Model) repoBar() string {
-	text := fmt.Sprintf(" Repository  < %s >  %d/%d", m.repoLabel(), m.repo, len(m.repos))
+	shown := m.shown()
+	text := fmt.Sprintf(" Repository  < %s >  %d/%d", m.repoLabel(), slices.Index(shown, m.repo-1)+1, len(shown))
 	if m.focus == paneSidebar {
 		return m.st.selected.Width(m.width).Render(ansi.Truncate(text, m.width, "…"))
 	}
@@ -357,19 +358,28 @@ func (m *Model) repoGlyph(r *repoState) string {
 }
 
 func (m *Model) sidebarLines(h int) []string {
-	lines := []string{m.paneTitle(paneSidebar, " Repositories")}
+	title := " Repositories"
+	shown := m.shown()
+	if m.group != "" { // the count always shows; "Repositories" and then the group's name give way to it
+		count := fmt.Sprintf(" %d/%d", len(shown), len(m.repos))
+		if title = " Repositories · " + clean(m.group) + count; lipgloss.Width(title) > sideW {
+			title = " " + ansi.Truncate(clean(m.group), sideW-1-len(count), "…") + count
+		}
+	}
+	lines := []string{m.paneTitle(paneSidebar, title)}
 	names := []string{"All repositories"}
 	glyphs := []string{" "}
-	for i := range m.repos {
+	for _, i := range shown {
 		names = append(names, clean(m.repos[i].cfg.Name))
 		glyphs = append(glyphs, m.repoGlyph(m.repos[i]))
 	}
-	start := max(0, m.repo-(h-2))
+	pos := slices.Index(shown, m.repo-1) + 1
+	start := max(0, pos-(h-2))
 	for i := start; i < len(names) && len(lines) < h; i++ {
 		switch {
-		case i == m.repo && m.focus == paneSidebar:
+		case i == pos && m.focus == paneSidebar:
 			lines = append(lines, m.st.selected.Width(sideW).Render(ansi.Truncate("> "+names[i], sideW, "…")))
-		case i == m.repo:
+		case i == pos:
 			lines = append(lines, m.st.marker.Render("> ")+m.st.text.Bold(true).Render(names[i]))
 		default:
 			lines = append(lines, glyphs[i]+" "+m.st.text.Render(names[i]))
@@ -768,7 +778,7 @@ func (m *Model) mainContent(w int) (string, func(int) []seg) {
 	switch m.view {
 	case viewOverview:
 		rows := m.overviewRows()
-		return fmt.Sprintf("Overview · %d repositories%s", len(m.repos), filter), func(i int) []seg {
+		return fmt.Sprintf("Overview · %d repositories%s", len(m.shown()), filter), func(i int) []seg {
 			return m.overviewSegs(m.repos[rows[i]])
 		}
 	case viewActivity:
@@ -1291,7 +1301,7 @@ func (m *Model) health() health {
 	var h health
 	switch m.view {
 	case viewOverview:
-		for i := range m.repos {
+		for _, i := range m.shown() {
 			addHealth(&h, m.repos[i].cfg.Name, &m.repos[i].summary)
 		}
 	case viewActivity:

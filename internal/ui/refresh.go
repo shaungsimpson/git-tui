@@ -74,10 +74,7 @@ func (m *Model) wanted() []want {
 			}
 		}
 	}
-	all := make([]int, len(m.repos))
-	for i := range all {
-		all[i] = i
-	}
+	all := m.shown() // a repository hidden by the group loads nothing
 	switch m.view {
 	case viewOverview:
 		add(kindSummary, all...)
