@@ -1008,6 +1008,8 @@ func (m *Model) emptyMessage() (string, lipgloss.Style) {
 		switch {
 		case r == nil:
 			return "Select a repository in the sidebar (Tab to focus it, j/k to choose).", m.st.muted, true
+		case r.cfg.Status != config.StatusOK && m.canEdit():
+			return "Unavailable: " + clean(r.cfg.Err) + " In the sidebar, f finds a moved folder, x removes it.", m.st.bad, true
 		case r.cfg.Status != config.StatusOK:
 			return "Unavailable: " + clean(r.cfg.Err), m.st.bad, true
 		}

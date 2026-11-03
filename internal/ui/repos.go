@@ -82,8 +82,18 @@ func (m *Model) connRepo() int {
 
 func (m *Model) canManage() bool { return m.canEdit() && !m.inspect && m.connRepo() >= 0 }
 
+// sideRepo is the Connections row's repository, else the focused sidebar's: x and f work in both.
+func (m *Model) sideRepo() int {
+	if i := m.connRepo(); i >= 0 || m.focus != paneSidebar || m.repo > len(m.repos) {
+		return i
+	}
+	return m.repo - 1
+}
+
+func (m *Model) canRemove() bool { return m.canEdit() && !m.inspect && m.sideRepo() >= 0 }
+
 func (m *Model) canFix() bool {
-	i := m.connRepo()
+	i := m.sideRepo()
 	return m.canEdit() && i >= 0 && m.repos[i].cfg.Status != config.StatusOK
 }
 
@@ -174,7 +184,7 @@ func (m *Model) moveRepo(d int) tea.Cmd {
 }
 
 func (m *Model) askRemove() {
-	i := m.connRepo()
+	i := m.sideRepo()
 	if i < 0 {
 		return
 	}

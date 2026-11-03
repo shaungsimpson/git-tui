@@ -533,7 +533,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 	case actAdd:
 		return m.openScan(-1)
 	case actFix:
-		return m.openScan(m.connRepo())
+		return m.openScan(m.sideRepo())
 	case actRename:
 		return m.startRename()
 	case actMarkdown:

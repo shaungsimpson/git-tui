@@ -104,7 +104,7 @@ var actions = []action{
 	{id: actFix, key: bind("f", "find moved folder", "f"), hint: true, item: true, group: groupRepos, when: (*Model).canFix},
 	{id: actRename, key: bind("r", "rename repository", "r"), item: true, group: groupRepos, when: (*Model).canManage},
 	{id: actGroup, key: bind("e", "set group", "e"), item: true, group: groupRepos, when: (*Model).canManage},
-	{id: actRemove, key: bind("x", "remove repository", "x"), item: true, group: groupRepos, when: (*Model).canManage},
+	{id: actRemove, key: bind("x", "remove repository", "x"), item: true, group: groupRepos, when: (*Model).canRemove},
 	{id: actMoveUp, key: bind("K/J", "move repository up/down", "K", "shift+k"), item: true, group: groupRepos, when: (*Model).canManage},
 	{id: actMoveDown, key: bind("", "", "J", "shift+j"), when: (*Model).canManage},
 	{id: actNextGroup, key: bind("[/]", "next / previous group", "]"), hint: true, when: (*Model).hasGroups},

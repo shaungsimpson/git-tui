@@ -155,6 +155,34 @@ func TestFindMovedFolder(t *testing.T) {
 	}
 }
 
+func TestRemoveFromSidebar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := config.Save(path, config.Config{Repositories: []config.Repo{{Name: "api", Path: "/gone/api"}, {Name: "web", Path: "/gone/web"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: path, Repos: cfg.Repositories}, 120, 30)
+	m.repo = 1
+	m.focus = paneMain
+	press(m, "x")
+	if m.confirm != "" {
+		t.Fatal("x outside the sidebar and Connections should do nothing")
+	}
+	press(m, "g", "r")
+	m.focus = paneSidebar
+	if !strings.Contains(m.View().Content, "x removes it") {
+		t.Fatal("an unavailable repository should say how to remove it")
+	}
+	press(m, "f")
+	if !m.scan.open || m.scan.fix != 0 {
+		t.Fatal("f in the sidebar should find the selected repository's folder")
+	}
+	press(m, "esc", "esc", "x", "y")
+	if got := savedNames(t, path); got != "web" {
+		t.Fatalf("x in the sidebar should remove the selected repository: got %s", got)
+	}
+}
+
 func TestRepositoryEditsNeedAReadableConfig(t *testing.T) {
 	m := setup(t, Options{Source: gitx.Demo{}, ConfigPath: "/x/config.json", ConfigErr: errors.New("parse: bad")}, 120, 30)
 	press(m, "g", "c", "a")
