@@ -676,8 +676,28 @@ func (m *Model) reviewText(p gitx.PR) (string, lipgloss.Style) {
 	return "-", m.st.muted
 }
 
+var checkGlyph = map[gitx.CheckState]string{gitx.ChecksNone: " ", gitx.ChecksPassing: "·", gitx.ChecksPending: "…", gitx.ChecksFailing: "!"}
+
+// prStack is p's stack among all of its repository's open PRs, whatever the filter hides.
+func (m *Model) prStack(p gitx.PR) ([]gitx.PR, []int) {
+	for _, r := range m.repos {
+		if r.cfg.Name == p.Repo {
+			return gitx.Stack(r.gh.prs.val, p)
+		}
+	}
+	return nil, nil
+}
+
+// stackMark marks a stacked PR; the ASCII and text headers say the terminal may not draw emoji, as for 🔔.
+func (m *Model) stackMark() string {
+	if m.profile == ProfileASCII || m.profile == ProfileText {
+		return "="
+	}
+	return "🥞"
+}
+
 func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
-	glyph := map[gitx.CheckState]string{gitx.ChecksNone: " ", gitx.ChecksPassing: "·", gitx.ChecksPending: "…", gitx.ChecksFailing: "!"}[p.Checks]
+	glyph := checkGlyph[p.Checks]
 	review, rst := m.reviewText(p)
 	star, sst := " ", m.st.accent // marks PRs waiting on the viewer's review, or the viewer's ready to merge
 	switch {
@@ -686,7 +706,12 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	case m.ready(p):
 		star, sst = "✔", m.st.ok
 	}
-	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}, {star + " ", sst}}
+	mark := m.stackMark()
+	pancake := strings.Repeat(" ", lipgloss.Width(mark)+1)
+	if s, _ := m.prStack(p); s != nil {
+		pancake = mark + " "
+	}
+	segs := []seg{{glyph + " ", m.checkStyle(p.Checks)}, {star + " ", sst}, {pancake, m.st.text}}
 	if showRepo {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
@@ -711,6 +736,18 @@ func (m *Model) prDetail(p gitx.PR) []string {
 	}
 	if m.ready(p) {
 		lines = slices.Insert(lines, 5, m.kv("Ready", "✔ approved, checks passing", m.st.ok))
+	}
+	if s, depth := m.prStack(p); s != nil {
+		lines = append(lines, m.kv("Stack", m.stackMark()+fmt.Sprintf(" %d PRs, merge in this order", len(s)), m.st.text))
+		for i, q := range s {
+			mark := "  "
+			if q.Number == p.Number {
+				mark = "▸ "
+			}
+			review, rst := m.reviewText(q)
+			lines = append(lines, "   "+m.st.accent.Render(mark)+strings.Repeat("  ", depth[i])+m.st.id.Render(pad("#"+strconv.Itoa(q.Number), 5))+
+				m.checkStyle(q.Checks).Render(checkGlyph[q.Checks]+" ")+rst.Render(pad(review, 8))+m.st.text.Render(clean(q.Title)))
+		}
 	}
 	lines = append(lines, "", m.kv("Link", "", m.st.muted)+m.linkify(clean(p.URL), m.st.muted)) // after the blank, so only the page shows it
 	if strings.TrimSpace(p.Body) != "" {
@@ -1183,13 +1220,15 @@ func (m *Model) detailLines() []string {
 	}
 }
 
-// wrapLines wraps detail lines to w columns, keeping their one-space indent.
+// wrapLines wraps detail lines to w columns; a wrapped line continues under its own indent, so nesting stays visible.
 func wrapLines(lines []string, w int) []string {
 	var body []string
 	for _, l := range lines {
-		wrapped := lipgloss.NewStyle().Width(max(2, w-1)).Render(strings.TrimPrefix(l, " "))
+		plain := ansi.Strip(l)
+		cut := min(len(plain)-len(strings.TrimLeft(plain, " ")), w/2) // at most half, so text still fits
+		wrapped := lipgloss.NewStyle().Width(max(2, w-max(1, cut))).Render(ansi.TruncateLeft(l, cut, ""))
 		for _, part := range strings.Split(wrapped, "\n") {
-			body = append(body, " "+part)
+			body = append(body, strings.Repeat(" ", max(1, cut))+part)
 		}
 	}
 	return body

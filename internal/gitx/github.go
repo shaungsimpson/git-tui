@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,8 @@ type PR struct {
 	Title   string
 	Author  string
 	Branch  string
+	Base    string // the branch it merges into; another open PR's Branch when it is stacked
+	Fork    bool   // its branch lives in another repository, so it never carries a stack
 	URL     string
 	Draft   bool
 	Review  string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty when no review is required
@@ -66,7 +69,7 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	})
 	// shortcut: only the 300 most recently created open PRs per repository; raise it if a repository has more.
 	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
-		"--json", "number,title,author,headRefName,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,body,files")
+		"--json", "number,title,author,headRefName,baseRefName,isCrossRepository,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,body,files")
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +188,8 @@ func ParsePRs(repo, out string) ([]PR, error) {
 		Number            int
 		Title             string
 		HeadRefName       string
+		BaseRefName       string
+		IsCrossRepository bool
 		URL               string
 		IsDraft           bool
 		ReviewDecision    string
@@ -216,11 +221,50 @@ func ParsePRs(repo, out string) ([]PR, error) {
 		}
 		prs = append(prs, PR{
 			Repo: repo, Number: r.Number, Title: r.Title, Author: r.Author.Login, Branch: r.HeadRefName,
+			Base: r.BaseRefName, Fork: r.IsCrossRepository,
 			URL: r.URL, Draft: r.IsDraft, Review: r.ReviewDecision, Checks: checks, Updated: r.UpdatedAt,
 			Body: r.Body, Files: r.Files,
 		})
 	}
 	return prs, nil
+}
+
+// Stack is every PR stacked with p, depth-first from the bottom, with each one's depth; nil when p stands alone.
+// prs are one repository's open PRs.
+func Stack(prs []PR, p PR) ([]PR, []int) {
+	prs = slices.SortedFunc(slices.Values(prs), func(a, b PR) int { return a.Number - b.Number }) // siblings oldest first
+	byBranch := map[string]PR{}
+	for _, q := range prs {
+		if !q.Fork {
+			byBranch[q.Branch] = q
+		}
+	}
+	parent := func(q PR) (PR, bool) {
+		b, ok := byBranch[q.Base]
+		return b, ok && b.Number != q.Number
+	}
+	root, seen := p, map[int]bool{p.Number: true}
+	for b, ok := parent(root); ok && !seen[b.Number]; b, ok = parent(root) { // seen stops a loop of bases
+		root, seen[b.Number] = b, true
+	}
+	var out []PR
+	var depth []int
+	done := map[int]bool{}
+	var walk func(q PR, d int)
+	walk = func(q PR, d int) {
+		done[q.Number] = true
+		out, depth = append(out, q), append(depth, d)
+		for _, c := range prs {
+			if b, ok := parent(c); ok && b.Number == q.Number && !done[c.Number] {
+				walk(c, d+1)
+			}
+		}
+	}
+	walk(root, 0)
+	if len(out) < 2 {
+		return nil, nil
+	}
+	return out, depth
 }
 
 // Image downloads a GitHub-hosted picture. The gh login token goes to github.com only, where attachments in

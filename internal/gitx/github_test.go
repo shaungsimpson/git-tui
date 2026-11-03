@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,7 +35,7 @@ func TestRepoSlug(t *testing.T) {
 
 func TestParsePRsCheckRollup(t *testing.T) {
 	out := `[
-	 {"number":1,"title":"Pass","author":{"login":"a"},"isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-10-29T22:58:38Z",
+	 {"number":1,"title":"Pass","author":{"login":"a"},"baseRefName":"main","isCrossRepository":true,"isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-10-29T22:58:38Z",
 	  "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
 	                       {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SKIPPED"},
 	                       {"__typename":"StatusContext","state":"SUCCESS"}]},
@@ -62,7 +63,8 @@ func TestParsePRsCheckRollup(t *testing.T) {
 			t.Errorf("#%d %q: checks %v, want %v", p.Number, p.Title, p.Checks, want[i])
 		}
 	}
-	if prs[0].Author != "a" || prs[0].Review != "APPROVED" || prs[0].Updated.IsZero() || !prs[2].Draft || prs[0].Repo != "backend" {
+	if prs[0].Author != "a" || prs[0].Review != "APPROVED" || prs[0].Updated.IsZero() || !prs[2].Draft || prs[0].Repo != "backend" ||
+		prs[0].Base != "main" || !prs[0].Fork || prs[1].Fork {
 		t.Fatalf("fields not mapped: %+v", prs[0])
 	}
 	if !strings.Contains(prs[3].Body, "![shot]") || len(prs[3].Files) != 1 || prs[3].Files[0] != (PRFile{"a.go", 3, 1}) {
@@ -99,5 +101,35 @@ func TestParseViewer(t *testing.T) {
 func TestSlugWithoutOrigin(t *testing.T) {
 	if _, err := (Git{}).Slug(context.Background(), gitRepo(t)); !errors.Is(err, ErrNoOrigin) {
 		t.Fatalf("a repository with no origin remote should report ErrNoOrigin, got %v", err)
+	}
+}
+
+func TestStack(t *testing.T) {
+	prs := []PR{
+		{Number: 1, Branch: "a", Base: "main"},
+		{Number: 2, Branch: "b", Base: "a"},
+		{Number: 3, Branch: "c", Base: "b"},
+		{Number: 4, Branch: "d", Base: "a"},
+		{Number: 5, Branch: "e", Base: "main"},
+		{Number: 6, Branch: "z", Base: "main", Fork: true},
+		{Number: 9, Branch: "f", Base: "z"}, // a fork's branch is no parent, though it shares a name
+		{Number: 7, Branch: "x", Base: "y"},
+		{Number: 8, Branch: "y", Base: "x"}, // a loop of bases still ends
+	}
+	got, depth := Stack(prs, prs[2])
+	var nums []int
+	for _, p := range got {
+		nums = append(nums, p.Number)
+	}
+	if !slices.Equal(nums, []int{1, 2, 3, 4}) || !slices.Equal(depth, []int{0, 1, 2, 1}) {
+		t.Fatalf("stack of #3 = %v at depths %v", nums, depth)
+	}
+	for _, i := range []int{4, 6} {
+		if s, _ := Stack(prs, prs[i]); s != nil {
+			t.Fatalf("#%d stands alone, got %v", prs[i].Number, s)
+		}
+	}
+	if s, _ := Stack(prs, prs[7]); len(s) != 2 {
+		t.Fatalf("a loop should list both PRs once, got %v", s)
 	}
 }

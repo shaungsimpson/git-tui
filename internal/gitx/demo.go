@@ -186,6 +186,7 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 			Title:   demoSubjects[k%len(demoSubjects)],
 			Author:  authors[k%len(authors)],
 			Branch:  fmt.Sprintf("feature/demo-%d", i+1),
+			Base:    "main",
 			URL:     fmt.Sprintf("https://github.com/example/%s/pull/%d", repo, 400+seed*10+i),
 			Draft:   i == 3,
 			Review:  reviews[k%len(reviews)],
@@ -201,7 +202,10 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 			p.Author, p.Review, p.Checks, p.Draft = "alice", "APPROVED", ChecksPassing, false
 		}
 	}
-	if repo == "backend" { // a dependency bot's PR, whose description shows the markdown formatting
+	if repo == "backend" {
+		// a stack with a branch: 2 and 4 sit on 1, and 3 on 2
+		prs[1].Base, prs[2].Base, prs[3].Base = prs[0].Branch, prs[1].Branch, prs[0].Branch
+		// a dependency bot's PR, whose description shows the markdown formatting
 		prs = append(prs, PR{
 			Repo: repo, Number: 499, Title: "chore(deps): update weekly dependencies", Author: "app/renovate",
 			Branch: "renovate/weekly", URL: "https://github.com/example/backend/pull/499", Review: "REVIEW_REQUIRED",

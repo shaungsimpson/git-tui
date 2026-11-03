@@ -463,3 +463,15 @@ func TestRepoViewKeepsItsRowsOnScreen(t *testing.T) {
 		t.Fatalf("the smallest window should keep at least 2 commit rows, got %d", h)
 	}
 }
+
+func TestWrapLinesHangsUnderIndent(t *testing.T) {
+	got := wrapLines([]string{"    #470 remove the deprecated users API", "xyz"}, 20)
+	for _, l := range got[1 : len(got)-1] {
+		if !strings.HasPrefix(l, "    ") || strings.HasPrefix(l, "     ") || lipgloss.Width(l) > 20 {
+			t.Fatalf("a wrapped line should continue under its indent within the width: %q", got)
+		}
+	}
+	if strings.TrimRight(got[len(got)-1], " ") != " xyz" {
+		t.Fatalf("a line without an indent keeps all of its text: %q", got[len(got)-1])
+	}
+}

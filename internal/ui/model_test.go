@@ -595,6 +595,18 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 			t.Fatalf("a link should close on the line it opens: %q", l)
 		}
 	}
+	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return p.Repo == "backend" && p.Branch == "feature/demo-3" })
+	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "🥞 4 PRs, merge in this order") || !strings.Contains(d, "▸     #") {
+		t.Fatalf("the demo's stacked PR should list its stack, marked at depth 2:\n%s", d)
+	}
+	if p := m.prList()[m.cursor[viewPRs]]; !strings.Contains(ansi.Strip(m.row(m.prSegs(p, 140, true), 140, false, true)[0]), "🥞") {
+		t.Fatal("demo should mark stacked PRs in the list")
+	}
+	m.profile = ProfileASCII
+	if row := ansi.Strip(m.row(m.prSegs(m.prList()[m.cursor[viewPRs]], 140, true), 140, false, true)[0]); strings.Contains(m.render(), "🥞") || !strings.Contains(row, " = ") {
+		t.Fatalf("the ASCII header should mark stacked PRs with = instead of the emoji: %q", row)
+	}
+	m.profile = ProfileFull
 	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return p.Number == 499 })
 	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "▸ left-pad/core") || !strings.Contains(d, "▸ Commits") || !strings.Contains(d, "devDependencies  patch") {
 		t.Fatalf("the demo's bot PR should show a formatted table and a closed section:\n%s", d)

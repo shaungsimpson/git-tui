@@ -135,7 +135,7 @@ The time zone (`u`), the date format (`w`), the profile header style (`b`), whet
 |-------------|-----------------------------------------------------------------------------------------|
 | Overview    | Per repository: branch, worktree state, ahead/behind, how long ago it last fetched (amber after a day, red after a week), latest commit |
 | Activity    | Recent commits (100 per repository), merged by date, for all repositories or the one selected |
-| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). Its detail page (`v`) shows the description, formatted (see [Descriptions](#descriptions)), and the changed files; `d` shows the PR's code diff |
+| Pull requests | Open PRs with review state, a ★ when your review is requested (directly or through a team), draft flag and combined check status (passing, pending, failing). A 🥞 marks a stacked PR: one based on another open PR's branch, or one that others are based on (a PR from a fork is never a base). With the ASCII or text header it is drawn as `=`, like the badges, for terminals without emoji. The preview and detail page list its whole stack in merge order, indented by depth, with the selected PR marked ▸. Its detail page (`v`) shows the description, formatted (see [Descriptions](#descriptions)), and the changed files; `d` shows the PR's code diff |
 | Repository  | Branch, HEAD, upstream, tracking, last fetch and worktree for the selected repository, plus its commits: first those on its upstream branch that you fetched but have not pulled (up to 50), then its recent ones. The last fetch line also says how many newer commits GitHub has that you have not fetched |
 | Tags        | Tags; mark one as the base and pick another to list the **commits** between them        |
 | Environments | Per environment, the newest successful GitHub deployment (commit, ref, time) and any newer failed or running attempt. Enter lists commits on `origin/HEAD` that the deployment does not contain |
@@ -173,7 +173,7 @@ Above the tabs, a header shows who you are and what is waiting for you, across e
 Two badges stand out at the right of the header's first line whenever there is something to act on:
 
 - A red **🔔 3** badge counts the open PRs waiting on your review (the ★ ones), and a green **✔ 2** badge counts your PRs ready to merge. Counts above 9 show as `9+`. A badge is hidden at zero and until pull requests load; if a load fails, the last good count stays.
-- In the ASCII and text headers they are drawn as `[! 3]` and `[ok 2]`. With the header off, or hidden because the window is short, they move to the tab bar, which drops the repository name, then the time zone, before the tabs to make room.
+- In the ASCII and text headers they are drawn as `[! 3]` and `[ok 2]`, and a stacked PR's 🥞 as `=`, so pick one of these headers if your terminal does not draw emoji. With the header off, or hidden because the window is short, they move to the tab bar, which drops the repository name, then the time zone, before the tabs to make room.
 - When the review count goes up while the app is open, the red badge pulses for about three seconds and the status line says `Someone asked for your review. Press n to see it.` While reviews are waiting, the window title reads `git-tui (3)`, so you can see it from another tab.
 - `n` lists the PRs behind them, and the footer shows `n reviews / ready to merge` while either badge is lit: see [Keyboard](#keyboard).
 
