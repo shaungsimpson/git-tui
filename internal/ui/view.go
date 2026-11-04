@@ -676,6 +676,44 @@ func (m *Model) reviewText(p gitx.PR) (string, lipgloss.Style) {
 	return "-", m.st.muted
 }
 
+// ageStyle colours a PR's time by how long it has been open: blue, amber from a day, red from three. Drafts stay blue.
+func (m *Model) ageStyle(p gitx.PR) lipgloss.Style {
+	switch d := m.now().Sub(p.Opened); {
+	case p.Draft || p.Opened.IsZero() || d < 24*time.Hour:
+		return m.st.date
+	case d < 72*time.Hour:
+		return m.st.warn
+	}
+	return m.st.bad
+}
+
+// statusStyles are the ways PR rows show review status, cycled with c.
+var statusStyles = []string{"full", "letter", "symbol", "emoji"}
+
+// statusWidths is each status style's column width, in statusStyles order; emoji are two cells wide.
+var statusWidths = [...]int{8, 1, 1, 2}
+
+// compactReview is each review label as a letter, a symbol and an emoji.
+var compactReview = map[string][3]string{
+	"approved": {"A", "✓", "👍"}, "changes": {"C", "✗", "🔧"}, "review": {"R", "?", "👀"}, "draft": {"D", "◌", "📝"}, "-": {"-", "-", "-"},
+}
+
+// statusLabel is a review label in the chosen style and its column width. Full words become letters under 60
+// columns, and emoji become symbols where the header says the terminal may not draw them, as for 🥞.
+func (m *Model) statusLabel(review string, w int) (string, int) {
+	s := m.status
+	if s == 3 && (m.profile == ProfileASCII || m.profile == ProfileText) {
+		s = 2
+	}
+	if s == 0 && w < 60 {
+		s = 1
+	}
+	if s == 0 {
+		return review, statusWidths[s]
+	}
+	return compactReview[review][s-1], statusWidths[s]
+}
+
 var checkGlyph = map[gitx.CheckState]string{gitx.ChecksNone: " ", gitx.ChecksPassing: "·", gitx.ChecksPending: "…", gitx.ChecksFailing: "!"}
 
 // prStack is p's stack among all of its repository's open PRs, whatever the filter hides.
@@ -715,8 +753,9 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	if showRepo {
 		segs = append(segs, seg{pad(clean(p.Repo), 14), m.st.accent})
 	}
-	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.id}, seg{pad(review, 8), rst})
-	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.st.date})
+	label, lw := m.statusLabel(review, w)
+	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.id}, seg{pad(label, lw), rst})
+	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.ageStyle(p)})
 	return titled(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)}, m.stacked(m.view), w)
 }
 
@@ -730,6 +769,9 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		m.kv("Review", review, rst),
 		m.kv("Checks", checkText[p.Checks], m.checkStyle(p.Checks)),
 		m.kv("Updated", m.when(p.Updated), m.st.date),
+	}
+	if !p.Opened.IsZero() {
+		lines = slices.Insert(lines, len(lines)-1, m.kv("Opened", m.when(p.Opened), m.ageStyle(p)))
 	}
 	if p.ForMe {
 		lines = slices.Insert(lines, 5, m.kv("Requested", "★ your review", m.st.accent))

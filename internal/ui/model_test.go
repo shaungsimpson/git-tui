@@ -467,6 +467,19 @@ func TestDateFormats(t *testing.T) {
 	}
 }
 
+func TestStatusStyleRemembered(t *testing.T) {
+	o := demoOpts()
+	o.StatePath = t.TempDir() + "/state.json"
+	press(setup(t, o, 150, 40), "c")
+	if got, _ := config.LoadState(o.StatePath); got.Status != "letter" {
+		t.Fatalf("the PR status style should be remembered, got %q", got.Status)
+	}
+	o.Status = "emoji"
+	if m := setup(t, o, 150, 40); statusStyles[m.status] != "emoji" {
+		t.Fatal("a saved PR status style should be used on the next run")
+	}
+}
+
 func TestToggleUTC(t *testing.T) {
 	// Pin the local zone: CI machines run in UTC, where local and UTC look the same.
 	real := time.Local
@@ -607,7 +620,17 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 		t.Fatalf("the ASCII header should mark stacked PRs with = instead of the emoji: %q", row)
 	}
 	m.profile = ProfileFull
+	ages := map[any]bool{}
+	for _, p := range m.prList() {
+		ages[m.ageStyle(p).GetForeground()] = true
+	}
+	if !ages[m.st.warn.GetForeground()] || !ages[m.st.bad.GetForeground()] {
+		t.Fatal("demo PRs should show amber and red ages")
+	}
 	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return p.Number == 499 })
+	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "Opened") {
+		t.Fatal("demo PR pages should say when the PR was opened")
+	}
 	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "▸ left-pad/core") || !strings.Contains(d, "▸ Commits") || !strings.Contains(d, "devDependencies  patch") {
 		t.Fatalf("the demo's bot PR should show a formatted table and a closed section:\n%s", d)
 	}

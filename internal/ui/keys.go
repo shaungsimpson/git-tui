@@ -45,6 +45,7 @@ const (
 	actSort
 	actPreview
 	actDates
+	actStatus
 	actQuit
 )
 
@@ -118,6 +119,7 @@ var actions = []action{
 	{id: actTheme, key: bind("f2", "theme", "f2")},
 	{id: actTime, key: bind("u", "UTC / local times", "u")},
 	{id: actDates, key: bind("w", "dates: numeric, relative, short, weekday", "w")},
+	{id: actStatus, key: bind("c", "PR status: full, letter, symbol, emoji", "c")},
 	{id: actQuit, key: bind("ctrl+c", "quit", "ctrl+c")}, // handled first in handleKey; listed here for help
 }
 

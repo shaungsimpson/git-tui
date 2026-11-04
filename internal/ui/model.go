@@ -67,6 +67,7 @@ type Options struct {
 	UTC          bool          // show times in UTC
 	NoPreview    bool          // hide the preview pane beside the list
 	Dates        string        // how list rows show dates, one of dateFormats
+	Status       string        // how PR rows show review status, one of statusStyles
 	StatePath    string        // where toggles are remembered; empty in demo mode and tests
 	Version      string        // as -version prints it
 	Executable   string        // the running binary
@@ -90,6 +91,7 @@ type Model struct {
 	utc            bool // show times in UTC instead of the local zone
 	noPreview      bool // the list takes the preview pane's width
 	dates          int  // index into dateFormats
+	status         int  // index into statusStyles
 
 	view    viewID
 	focus   paneID
@@ -161,6 +163,7 @@ func New(o Options) *Model {
 	m.gh = map[string]*ghState{}
 	m.why = map[int64]*slot[[]string]{}
 	m.dates = max(0, slices.Index(dateFormats, o.Dates)) // an unknown saved name keeps the default
+	m.status = max(0, slices.Index(statusStyles, o.Status))
 	m.rawMD = o.RawMarkdown
 	for v, k := range sortKeys {
 		if i := slices.Index(sortsOf[v], o.Sorts[k]); i >= 0 { // an unknown saved name keeps the default
@@ -590,6 +593,10 @@ func (m *Model) do(id actionID) tea.Cmd {
 		m.dates = (m.dates + 1) % len(dateFormats)
 		m.flash = "Dates shown as " + dateFormats[m.dates] + "."
 		m.savePrefs(func(s *config.State) { s.Dates = dateFormats[m.dates] })
+	case actStatus:
+		m.status = (m.status + 1) % len(statusStyles)
+		m.flash = "PR status shown as " + statusStyles[m.status] + "."
+		m.savePrefs(func(s *config.State) { s.Status = statusStyles[m.status] })
 	case actDiff:
 		src := m.opts.Source
 		if p, ok := m.selectedPR(); ok {

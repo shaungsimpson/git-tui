@@ -39,6 +39,7 @@ type PR struct {
 	Review  string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty when no review is required
 	Checks  CheckState
 	Updated time.Time
+	Opened  time.Time // drives the row's age colour
 	Body    string
 	Files   []PRFile
 	ForMe   bool // the viewer's review is requested, directly or through a team
@@ -69,7 +70,7 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	})
 	// shortcut: only the 300 most recently created open PRs per repository; raise it if a repository has more.
 	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
-		"--json", "number,title,author,headRefName,baseRefName,isCrossRepository,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,body,files")
+		"--json", "number,title,author,headRefName,baseRefName,isCrossRepository,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,createdAt,body,files")
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +195,7 @@ func ParsePRs(repo, out string) ([]PR, error) {
 		IsDraft           bool
 		ReviewDecision    string
 		UpdatedAt         time.Time
+		CreatedAt         time.Time
 		Body              string
 		Files             []PRFile
 		Author            struct{ Login string }
@@ -223,7 +225,7 @@ func ParsePRs(repo, out string) ([]PR, error) {
 			Repo: repo, Number: r.Number, Title: r.Title, Author: r.Author.Login, Branch: r.HeadRefName,
 			Base: r.BaseRefName, Fork: r.IsCrossRepository,
 			URL: r.URL, Draft: r.IsDraft, Review: r.ReviewDecision, Checks: checks, Updated: r.UpdatedAt,
-			Body: r.Body, Files: r.Files,
+			Opened: r.CreatedAt, Body: r.Body, Files: r.Files,
 		})
 	}
 	return prs, nil

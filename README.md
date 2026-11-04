@@ -121,7 +121,7 @@ Once a repository has a group, `]` and `[` cycle what is shown: all repositories
 
 ## Remembered preferences
 
-The time zone (`u`), the date format (`w`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`), whether descriptions are formatted (`m`), the group shown (`]` and `[`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
+The time zone (`u`), the date format (`w`), the PR status style (`c`), the profile header style (`b`), whether the preview pane is shown (`p`), each list's sort (`s`), whether descriptions are formatted (`m`), the group shown (`]` and `[`) and the folder adding repositories last looked in are remembered between runs in `$XDG_STATE_HOME/git-tui/state.json`, which defaults to `~/.local/state/git-tui/state.json`. Besides this file, the app writes only the update check's cache (see [Updates](#updates)), and the configuration file and its `.bak` when you change the repository list. A `-profile` flag wins over the remembered header for that run. Demo mode neither reads nor saves preferences.
 
 ## Demo mode
 
@@ -161,6 +161,10 @@ In Pull requests, a green **✔** in the column after the check status marks you
 ![Deploys across all repositories: a running deploy at the top, with successes and failures below](docs/images/deploys.webp)
 
 In Pull requests, a **★** in the column after the check status means someone has asked for your review, either you directly or a team you belong to. Its detail page repeats it as "Requested: ★ your review". The star comes from GitHub's `review-requested:@me` search, so it disappears once you submit a review, and comes back if you are asked again. It sits apart from the review column, which shows the PR's overall state (approved, changes, review, draft). If the search fails, the list still loads without stars until the next refresh.
+
+In Pull requests, a PR's time shows when it was last updated, and its colour shows how long it has been open: blue for under a day, amber from one day and red from three days. Drafts stay blue, and a draft marked ready counts from when it was opened. The detail page shows "Opened" in the same colour.
+
+The review column shows the full word (approved, changes, review, draft), a letter (`A` `C` `R` `D`), a symbol (`✓` `✗` `?` `◌`) or an emoji (👍 🔧 👀 📝); `c` cycles them. Full words become letters on lists under 60 columns, and emoji become symbols with the ASCII or text header.
 
 Authors are coloured so you can follow a person down a list: the same name always gets the same colour, ignoring case and punctuation (`Jane Doe` and `jane.doe` match). Your own name, as your GitHub login, display name or git name, is in the accent colour (a PR author must match your login exactly), and bots such as `renovate[bot]` and GitHub Apps (`app/dependabot`) are grey. A GitHub login and a git name for someone else can still get different colours, since nothing links them.
 
@@ -221,6 +225,7 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `t` / `T` / `Ctrl+T` | Open a new terminal tab, a split to the right, or a split below, at the selected repository's root (Overview row, sidebar or Repository view). Ghostty 1.4 or later on macOS, or Windows Terminal on WSL, outside tmux; elsewhere the keys are hidden |
 | `u`               | Show times in UTC or your local time zone (shown in the header)           |
 | `w`               | Cycle how list rows show dates: numeric (`2026-03-02 06:00`, without the year on narrow lists), relative (`3h ago`, the date once it is a week old), short (`2 Mar 06:00`) or weekday (`Mon 2 Mar 06:00`). Dates from an earlier year show the year instead of the time. Detail pages always show the exact time and how long ago. Remembered between runs |
+| `c`               | Cycle how Pull requests rows show review status: full word, letter, symbol or emoji. Remembered between runs |
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
 | `]` / `[`         | Show the next or previous group: all repositories, then each group. Offered once a repository has a group. See [Groups](#groups). Remembered between runs |
 | `a` `r` `e` `x` `K` `J` `f` | In Connections: add, rename, group, remove, reorder or find repositories; `x` and `f` also work in the focused sidebar. See [Managing repositories](#managing-repositories) |

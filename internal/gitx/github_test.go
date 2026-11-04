@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRepoSlug(t *testing.T) {
@@ -35,7 +36,7 @@ func TestRepoSlug(t *testing.T) {
 
 func TestParsePRsCheckRollup(t *testing.T) {
 	out := `[
-	 {"number":1,"title":"Pass","author":{"login":"a"},"baseRefName":"main","isCrossRepository":true,"isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-10-29T22:58:38Z",
+	 {"number":1,"title":"Pass","author":{"login":"a"},"baseRefName":"main","isCrossRepository":true,"isDraft":false,"reviewDecision":"APPROVED","updatedAt":"2026-10-29T22:58:38Z","createdAt":"2026-10-27T01:00:00Z",
 	  "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
 	                       {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SKIPPED"},
 	                       {"__typename":"StatusContext","state":"SUCCESS"}]},
@@ -56,6 +57,9 @@ func TestParsePRsCheckRollup(t *testing.T) {
 	prs, err := ParsePRs("backend", out)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !prs[0].Opened.Equal(time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC)) {
+		t.Errorf("Opened = %v, want createdAt", prs[0].Opened)
 	}
 	want := []CheckState{ChecksPassing, ChecksFailing, ChecksPending, ChecksNone, ChecksPending}
 	for i, p := range prs {

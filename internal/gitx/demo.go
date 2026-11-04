@@ -192,6 +192,7 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 			Review:  reviews[k%len(reviews)],
 			Checks:  checks[k%len(checks)],
 			Updated: demoBase.Add(-time.Duration(k*5) * time.Hour),
+			Opened:  demoBase.Add(-time.Duration(k*5+i*30) * time.Hour), // a spread of ages, so rows show each colour
 			Body: "## Summary\n\n" + demoBodies[(k%2)+1] + "\n\nNotes: https://example.com/docs/off-by-one. See the [runbook](https://example.com/runbook).\n\n![Screenshot of the change](https://github.com/user-attachments/assets/demo-" +
 				fmt.Sprint(k) + ")\n\n- [x] Tests added",
 			Files: []PRFile{{"app/maths.ts", 12, 3}, {"app/maths.test.ts", 40, 0}},
@@ -209,7 +210,7 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 		prs = append(prs, PR{
 			Repo: repo, Number: 499, Title: "chore(deps): update weekly dependencies", Author: "app/renovate",
 			Branch: "renovate/weekly", URL: "https://github.com/example/backend/pull/499", Review: "REVIEW_REQUIRED",
-			Checks: ChecksPassing, Updated: demoBase.Add(-200 * time.Hour), Body: demoRenovate,
+			Checks: ChecksPassing, Updated: demoBase.Add(-200 * time.Hour), Opened: demoBase.Add(-240 * time.Hour), Body: demoRenovate,
 			Files: []PRFile{{"package.json", 2, 2}, {"pnpm-lock.yaml", 24, 24}},
 		})
 	}

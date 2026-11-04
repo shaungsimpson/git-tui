@@ -63,6 +63,39 @@ func TestPullRequestBodyFilesAndDiff(t *testing.T) {
 	}
 }
 
+func TestPRAgeAndStatusStyles(t *testing.T) {
+	m := New(demoOpts())
+	ago := func(h int) time.Time { return gitx.DemoNow.Add(-time.Duration(h) * time.Hour) }
+	for _, c := range []struct {
+		p    gitx.PR
+		want lipgloss.Style
+	}{
+		{gitx.PR{Opened: ago(120), Draft: true}, m.st.date},
+		{gitx.PR{}, m.st.date},
+		{gitx.PR{Opened: ago(2)}, m.st.date},
+		{gitx.PR{Opened: ago(30)}, m.st.warn},
+		{gitx.PR{Opened: ago(72)}, m.st.bad},
+	} {
+		if got := m.ageStyle(c.p).GetForeground(); got != c.want.GetForeground() {
+			t.Errorf("ageStyle(opened %v, draft %v) = %v, want %v", c.p.Opened, c.p.Draft, got, c.want.GetForeground())
+		}
+	}
+	for i, want := range []string{"approved", "A", "✓", "👍"} {
+		m.status = i
+		if got, _ := m.statusLabel("approved", 140); got != want {
+			t.Errorf("%s status = %q, want %q", statusStyles[i], got, want)
+		}
+	}
+	m.profile = ProfileText
+	if got, _ := m.statusLabel("changes", 140); got != "✗" {
+		t.Errorf("emoji should fall back to symbols where the header avoids emoji, got %q", got)
+	}
+	m.status = 0
+	if got, _ := m.statusLabel("review", 50); got != "R" {
+		t.Errorf("full words should become letters under 60 columns, got %q", got)
+	}
+}
+
 func TestHelpListsEveryKey(t *testing.T) {
 	for _, sz := range [][2]int{{60, 16}, {80, 24}, {140, 30}} {
 		m := setup(t, demoOpts(), sz[0], sz[1])
@@ -137,7 +170,12 @@ func TestRenderFitsTerminal(t *testing.T) {
 			press(m, "b")
 			check("badges in the " + mode + " header")
 		}
-		press(m, "b")
+		press(m, "b", "g", "p")
+		for _, style := range statusStyles[1:] {
+			press(m, "c")
+			check(style + " PR status")
+		}
+		press(m, "c")
 		press(m, "g", "c", "a", "enter")
 		check("add repositories")
 		press(m, "esc")
