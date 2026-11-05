@@ -797,7 +797,6 @@ func (m *Model) clampAll() {
 	bodyH := m.layout().bodyH
 	for v := range viewCount {
 		n, cur, off := m.listFor(v)
-		*cur = min(*cur, max(0, n-1))
 		keepVisible(cur, off, n, m.rowsIn(v, bodyH))
 	}
 }

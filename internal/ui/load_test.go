@@ -126,3 +126,28 @@ func TestUnknownGitHubRepository(t *testing.T) {
 		t.Fatalf("Connections should count a shared failed load once: %q", row.state)
 	}
 }
+
+func TestShrinkingListDoesNotPanic(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	m.selectRepo(1)
+	drain(m, m.setView(viewPRs))
+	prs := m.repos[0].gh.prs.val
+	m.cursor[viewPRs] = len(prs) - 1
+	// The selected PR closes: the footer is drawn before the cursor is clamped to the shorter list.
+	m.Update(answer(&m.repos[0].gh.prs, kindPRs, 0, prs[:len(prs)-1], nil))
+	if m.cursor[viewPRs] != len(prs)-2 {
+		t.Fatalf("cursor %d, want the new last row %d", m.cursor[viewPRs], len(prs)-2)
+	}
+}
+
+func TestAgedOutRowDoesNotPanic(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	drain(m, m.setView(viewPRs))
+	m.cursor[viewPRs] = len(m.prList()) - 1
+	m.filters[viewPRs] = "<1m" // as a time filter drops rows while they age, with no reload or setFilter to clamp
+	m.render()
+	press(m, "v", "o")
+	if m.cursor[viewPRs] != max(0, len(m.prList())-1) {
+		t.Fatalf("cursor %d past the %d rows left", m.cursor[viewPRs], len(m.prList()))
+	}
+}

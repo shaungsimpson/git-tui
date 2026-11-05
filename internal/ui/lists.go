@@ -59,7 +59,15 @@ func (m *Model) selectedRun() (gitx.Run, bool) {
 
 func (m *Model) list() (int, *int, *int) { return m.listFor(m.view) }
 
+// listFor is a view's row count and its cursor, clamped to the rows: a time filter can drop rows as they age,
+// with no reload to clamp it, and every reader of the selected row comes through here first.
 func (m *Model) listFor(v viewID) (int, *int, *int) {
+	n, cur, off := m.rows(v)
+	*cur = min(*cur, max(0, n-1))
+	return n, cur, off
+}
+
+func (m *Model) rows(v viewID) (int, *int, *int) {
 	cur, off := &m.cursor[v], &m.offset[v]
 	switch v {
 	case viewOverview:
