@@ -212,7 +212,7 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `v`               | View the selected item's details on a page of their own, across the whole window: a PR's description, pictures and files, a commit's message, why a deploy run stopped. On the page `j`/`k` scroll, `PgUp`/`PgDn` page, `Home`/`End` go to the top or bottom, `J`/`K` step to the next or previous item, and `o` and `d` still apply |
 | `Enter`           | From the sidebar, move to the list. In Overview: open the Repository view. In Tags: choose the base tag, then the head tag. In Environments: list commits not yet deployed |
 | `Esc`             | Close the detail page, the comparison, the base selection or the filter    |
-| `/`               | Filter the current list (`Enter` applies, `Esc` cancels). In Pull requests, `is:review` keeps your review requests and `is:ready` your PRs ready to merge |
+| `/`               | Filter the current list (`Enter` applies, `Esc` cancels), by text and by age: see [Filtering](#filtering). In Pull requests, `is:review` keeps your review requests and `is:ready` your PRs ready to merge |
 | `s`               | Sort the current list: Activity, Pull requests, Repository, Environments and Deploys (see [Views](#views)). Remembered between runs |
 | `n`               | Go to Pull requests across all repositories, filtered to your review requests (`is:review`); again for your PRs ready to merge (`is:ready`); again to show every PR |
 | `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout). Each tab underlines its letter |
@@ -250,6 +250,10 @@ The light theme (`F2`), and an 80×24 window, where the sidebar and preview pane
 ![The Pull requests view in the light theme](docs/images/light.webp)
 
 ![The Pull requests view in an 80×24 window, titles on a second line](docs/images/narrow.webp)
+
+### Filtering
+
+A filter keeps the rows that contain its text, ignoring case. It can also hold time terms, which keep rows by age: `>3d` older than three days, `<1w` from the last week, and `1d..1w` between one day and one week old. Units are `m`, `h`, `d` and `w`. Every term must match, so `renovate >3d` keeps Renovate's rows older than three days, and `is:review >2d` the review requests opened over two days ago; the words left over match as one phrase. Each list compares its own date: the commit in Activity and Repository, when the PR was opened in Pull requests (the date its colour shows), the tag in Tags, the deployment in Environments, the start of the run in Deploys, and the latest commit in Overview. A row without a date never matches a time term, and anything that is not a valid term, such as `>3x`, is matched as text.
 
 While the filter, rename or folder input is open, all typing and pasted text go to the input, not to shortcuts.
 

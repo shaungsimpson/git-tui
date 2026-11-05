@@ -571,6 +571,10 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if !strings.Contains(ansi.Strip(m.render()), "fetched 12d ago") {
 		t.Fatal("demo Overview should show a stale fetch")
 	}
+	if m.setFilter(">1w"); len(m.overviewRows()) != 1 {
+		t.Fatal("demo Overview should have one quiet repository for a time filter to find")
+	}
+	m.setFilter("")
 	if press(m, "]"); !strings.Contains(ansi.Strip(m.render()), " personal 1/5") {
 		t.Fatal("demo should have groups to cycle through")
 	}

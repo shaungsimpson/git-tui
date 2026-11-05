@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -140,5 +141,132 @@ func TestTabsUnderlineTheirGoLetter(t *testing.T) {
 		if i := goLetter(g.view); i < 0 || strings.ToLower(viewNames[g.view][i:i+1]) != g.key {
 			t.Errorf("%s: g %s, underlined position %d", viewNames[g.view], g.key, i)
 		}
+	}
+}
+
+func TestAgeTerm(t *testing.T) {
+	d := 24 * time.Hour
+	for in, want := range map[string][2]time.Duration{
+		">3d": {3 * d, 0}, "<1w": {0, 7 * d}, "<90m": {0, 90 * time.Minute}, ">2h": {2 * time.Hour, 0},
+		"1d..1w": {d, 7 * d}, "1w..1d": {d, 7 * d},
+	} {
+		if lo, hi, ok := ageTerm(in); !ok || lo != want[0] || hi != want[1] {
+			t.Errorf("%s: %v %v %v", in, lo, hi, ok)
+		}
+	}
+	for _, in := range []string{">3x", ">d", ">0d", "<-1d", "3d", "1d..", "v1.2..v1.3", ">", "fix"} {
+		if _, _, ok := ageTerm(in); ok {
+			t.Errorf("%s should be text", in)
+		}
+	}
+}
+
+func TestTimeFilterOnEveryDatedList(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	now := m.now()
+	type list struct {
+		n    func() int
+		ages func() []time.Duration
+	}
+	ages := func(ts ...time.Time) []time.Duration {
+		var out []time.Duration
+		for _, w := range ts {
+			out = append(out, now.Sub(w))
+		}
+		return out
+	}
+	lists := map[viewID]list{
+		viewActivity: {func() int { return len(m.activity()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, c := range m.activity() {
+				ts = append(ts, c.When)
+			}
+			return ages(ts...)
+		}},
+		viewPRs: {func() int { return len(m.prList()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, p := range m.prList() {
+				ts = append(ts, p.Opened)
+			}
+			return ages(ts...)
+		}},
+		viewRepo: {func() int { return len(m.repoCommits()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, c := range m.repoCommits() {
+				ts = append(ts, c.When)
+			}
+			return ages(ts...)
+		}},
+		viewTags: {func() int { return len(m.tagList()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, x := range m.tagList() {
+				ts = append(ts, x.When)
+			}
+			return ages(ts...)
+		}},
+		viewEnvs: {func() int { return len(m.envList()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, e := range m.envList() {
+				ts = append(ts, e.When)
+			}
+			return ages(ts...)
+		}},
+		viewRuns: {func() int { return len(m.runList()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, r := range m.runList() {
+				ts = append(ts, r.Started)
+			}
+			return ages(ts...)
+		}},
+		viewOverview: {func() int { return len(m.overviewRows()) }, func() []time.Duration {
+			var ts []time.Time
+			for _, i := range m.overviewRows() {
+				if c := m.repos[i].summary.val.Last; c != nil { // a repository that fails to read has none
+					ts = append(ts, c.When)
+				}
+			}
+			return ages(ts...)
+		}},
+	}
+	for v, l := range lists {
+		m.repo = 0
+		if v == viewRepo || v == viewTags {
+			m.repo = 1 // they list one repository's
+		}
+		drain(m, m.setView(v))
+		all := l.n()
+		as := l.ages()
+		mid := (slices.Min(as) + slices.Max(as)) / 2 // splits each list in two, in whole minutes
+		mid = mid.Truncate(time.Minute)
+		cut := strconv.Itoa(int(mid.Minutes())) + "m"
+		for f, keep := range map[string]func(time.Duration) bool{
+			">" + cut:          func(a time.Duration) bool { return a >= mid },
+			"<" + cut:          func(a time.Duration) bool { return a <= mid },
+			"1m.." + cut:       func(a time.Duration) bool { return a >= time.Minute && a <= mid },
+			">" + cut + " <1m": func(time.Duration) bool { return false },
+		} {
+			m.filters[v] = f
+			for _, a := range l.ages() {
+				if !keep(a) {
+					t.Errorf("view %d, %q let through age %v", v, f, a)
+				}
+			}
+		}
+		m.filters[v] = ">" + cut
+		if n := l.n(); n == 0 || n == all {
+			t.Errorf("view %d: >%s kept %d of %d; demo should spread its ages", v, cut, n, all)
+		}
+		m.filters[v] = ""
+	}
+
+	m.repo = 0
+	m.filters[viewPRs] = "is:review >1m"
+	for _, p := range m.prList() {
+		if !p.ForMe {
+			t.Fatalf("is:review with a time term let through #%d", p.Number)
+		}
+	}
+	if len(m.prList()) == 0 {
+		t.Fatal("is:review >1m should keep the demo's review requests")
 	}
 }

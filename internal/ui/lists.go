@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shaungsimpson/git-tui/internal/gitx"
 )
@@ -84,17 +85,60 @@ func (m *Model) listFor(v viewID) (int, *int, *int) {
 	}
 }
 
-func match(filter string, fields ...string) bool {
-	if filter == "" {
+// match reports whether a row passes filter: its time terms (>3d older than, <1w newer than, 1d..1w between)
+// against when's age, then the rest of the filter as one phrase in any of fields. A row with no time fails a time term.
+func (m *Model) match(filter string, when time.Time, fields ...string) bool {
+	var rest []string
+	for _, w := range strings.Fields(strings.ToLower(filter)) {
+		lo, hi, ok := ageTerm(w)
+		if !ok {
+			rest = append(rest, w)
+			continue
+		}
+		if a := m.now().Sub(when); when.IsZero() || a < lo || (hi > 0 && a > hi) {
+			return false
+		}
+	}
+	phrase := strings.Join(rest, " ")
+	if phrase == "" {
 		return true
 	}
-	filter = strings.ToLower(filter)
 	for _, f := range fields {
-		if strings.Contains(strings.ToLower(f), filter) {
+		if strings.Contains(strings.ToLower(f), phrase) {
 			return true
 		}
 	}
 	return false
+}
+
+// ageTerm reads a time term as the ages it keeps, between lo and hi; hi is 0 when there is no upper bound.
+func ageTerm(w string) (lo, hi time.Duration, ok bool) {
+	if a, b, found := strings.Cut(w, ".."); found {
+		x, okA := ageOfTerm(a)
+		y, okB := ageOfTerm(b)
+		return min(x, y), max(x, y), okA && okB
+	}
+	switch {
+	case strings.HasPrefix(w, ">"):
+		lo, ok = ageOfTerm(w[1:])
+	case strings.HasPrefix(w, "<"):
+		hi, ok = ageOfTerm(w[1:])
+	}
+	return lo, hi, ok
+}
+
+// ageOfTerm reads a positive whole number of minutes, hours, days or weeks, such as 3d.
+func ageOfTerm(s string) (time.Duration, bool) {
+	units := map[string]time.Duration{"m": time.Minute, "h": time.Hour, "d": 24 * time.Hour, "w": 7 * 24 * time.Hour}
+	if len(s) < 2 || s[0] < '0' || s[0] > '9' {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s[:len(s)-1])
+	u, ok := units[s[len(s)-1:]]
+	if err != nil || !ok || n <= 0 {
+		return 0, false
+	}
+	return time.Duration(n) * u, true
 }
 
 // sortsOf is how each sortable list can be ordered; the first is its default, newest first.
@@ -159,7 +203,12 @@ func runRank(r gitx.Run) int {
 func (m *Model) overviewRows() []int {
 	var rows []int
 	for _, i := range m.shown() {
-		if r := m.repos[i]; match(m.filters[viewOverview], r.cfg.Name, r.summary.val.Branch) {
+		r := m.repos[i]
+		var last time.Time
+		if c := r.summary.val.Last; c != nil {
+			last = c.When
+		}
+		if m.match(m.filters[viewOverview], last, r.cfg.Name, r.summary.val.Branch) {
 			rows = append(rows, i)
 		}
 	}
@@ -170,7 +219,7 @@ func (m *Model) overviewRows() []int {
 func (m *Model) commitsMatching(v viewID, cs []gitx.Commit) []gitx.Commit {
 	var out []gitx.Commit
 	for _, c := range cs {
-		if match(m.filters[v], c.Subject, c.Author, c.Repo, c.Hash) {
+		if m.match(m.filters[v], c.When, c.Subject, c.Author, c.Repo, c.Hash) {
 			out = append(out, c)
 		}
 	}
@@ -194,15 +243,21 @@ func (m *Model) activity() []gitx.Commit {
 
 // prList is the open pull requests of the selected repositories, most recently updated first.
 func (m *Model) prList() []gitx.PR {
-	f := m.filters[viewPRs]
-	keep := func(p gitx.PR) bool {
-		switch strings.ToLower(strings.TrimSpace(f)) { // the keywords n sets; they work typed after / too
-		case "is:review":
-			return p.ForMe
-		case "is:ready":
-			return m.ready(p)
+	var is, rest []string // the keywords n sets work typed after / too, alongside time terms and text
+	for _, w := range strings.Fields(m.filters[viewPRs]) {
+		if l := strings.ToLower(w); l == "is:review" || l == "is:ready" {
+			is = append(is, l)
+		} else {
+			rest = append(rest, w)
 		}
-		return match(f, p.Title, p.Author, p.Branch, p.Repo, "#"+strconv.Itoa(p.Number))
+	}
+	keep := func(p gitx.PR) bool {
+		for _, k := range is {
+			if k == "is:review" && !p.ForMe || k == "is:ready" && !m.ready(p) {
+				return false
+			}
+		}
+		return m.match(strings.Join(rest, " "), p.Opened, p.Title, p.Author, p.Branch, p.Repo, "#"+strconv.Itoa(p.Number))
 	}
 	var out []gitx.PR
 	for _, i := range m.ghScope() {
@@ -231,7 +286,7 @@ func (m *Model) envList() []envRow {
 	for _, i := range m.ghScope() {
 		for _, d := range m.repos[i].gh.deps.val {
 			d.Repo = m.repos[i].cfg.Name
-			if match(m.filters[viewEnvs], d.Environment, d.Repo, d.Ref, d.Commit) {
+			if m.match(m.filters[viewEnvs], d.When, d.Environment, d.Repo, d.Ref, d.Commit) {
 				out = append(out, envRow{i, d})
 			}
 		}
@@ -252,7 +307,7 @@ func (m *Model) runList() []gitx.Run {
 	for _, i := range m.ghScope() {
 		for _, r := range m.repos[i].gh.runs.val {
 			r.Repo = m.repos[i].cfg.Name
-			if match(m.filters[viewRuns], r.Workflow, r.Title, r.Branch, r.Repo, r.Status, r.Conclusion) {
+			if m.match(m.filters[viewRuns], r.Started, r.Workflow, r.Title, r.Branch, r.Repo, r.Status, r.Conclusion) {
 				out = append(out, r)
 			}
 		}
@@ -293,7 +348,7 @@ func (m *Model) tagList() []gitx.Tag {
 	}
 	var out []gitx.Tag
 	for _, t := range r.tags.val {
-		if match(m.filters[viewTags], t.Name, t.Subject) {
+		if m.match(m.filters[viewTags], t.When, t.Name, t.Subject) {
 			out = append(out, t)
 		}
 	}

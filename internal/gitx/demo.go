@@ -69,6 +69,9 @@ func demoGHErr(repo, dir string) error {
 	return demoErr(repo)
 }
 
+// demoIdle is how long before DemoNow a repository's newest commit is, so a time filter in Overview has quiet ones to find.
+var demoIdle = map[string]time.Duration{"personal-site": 9 * 24 * time.Hour}
+
 func demoCommits(repo string, n, offset int) []Commit {
 	seed := len(repo)
 	commits := make([]Commit, 0, n)
@@ -78,7 +81,7 @@ func demoCommits(repo string, n, offset int) []Commit {
 			Repo:    repo,
 			Hash:    fmt.Sprintf("%07x%033x", (seed*7919+k*104729)%0xfffffff, k),
 			Author:  demoAuthors[(seed+k)%len(demoAuthors)],
-			When:    demoBase.Add(-time.Duration(k*seed+k*3) * time.Hour),
+			When:    demoBase.Add(-demoIdle[repo] - time.Duration(k*seed+k*3)*time.Hour),
 			Subject: demoSubjects[(seed+k)%len(demoSubjects)],
 			Body:    demoBodies[k%len(demoBodies)],
 		})
