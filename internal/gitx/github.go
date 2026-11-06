@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"net/url"
 	"slices"
 	"strconv"
@@ -43,6 +44,19 @@ type PR struct {
 	Body    string
 	Files   []PRFile
 	ForMe   bool // the viewer's review is requested, directly or through a team
+
+	Comments int       // conversation comments plus reviews with a summary
+	LastBy   string    // who wrote the newest of them
+	LastAt   time.Time // when
+}
+
+// Comment is a pull request's conversation comment, or a review's summary when State is set.
+type Comment struct {
+	Author string
+	Bot    bool
+	Body   string
+	When   time.Time
+	State  string // a review's APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED; empty for a comment
 }
 
 // PRFile is one file a pull request changes.
@@ -68,6 +82,11 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 		return command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
 			"--search", "review-requested:@me sort:created-desc", "--json", "number")
 	})
+	owner, name, _ := strings.Cut(slug, "/")
+	counts := background(func() (string, error) {
+		return command(ctx, dir, ghListTimeout, "gh", "api", "graphql", "--paginate", "-f", "owner="+owner, "-f", "name="+name,
+			"-f", "query="+countQuery, "--jq", ".data.repository.pullRequests.nodes[]")
+	})
 	// shortcut: only the 300 most recently created open PRs per repository; raise it if a repository has more.
 	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
 		"--json", "number,title,author,headRefName,baseRefName,isCrossRepository,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,createdAt,body,files")
@@ -82,7 +101,133 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	if mine, err := mine(); err == nil {
 		_ = MarkRequested(prs, mine)
 	}
+	// shortcut: a failed count only hides the comment marks until the next refresh, as for the stars.
+	if counts, err := counts(); err == nil {
+		_ = MarkComments(prs, counts)
+	}
 	return prs, nil
+}
+
+// countQuery reads each open PR's comment count and newest comment, and its reviews, which GitHub cannot count
+// without the empty ones. shortcut: the newest 100 reviews per PR; page them if a PR collects more.
+const countQuery = `query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){` +
+	`pullRequests(states:OPEN,first:50,after:$endCursor){pageInfo{hasNextPage endCursor}nodes{number ` +
+	`comments(last:1){totalCount nodes{author{login}createdAt}}reviews(last:100){nodes{author{login}body submittedAt}}}}}}`
+
+// MarkComments sets each PR's comment count and newest commenter from the PR nodes, one JSON value each, that
+// countQuery returns.
+func MarkComments(prs []PR, out string) error {
+	type note struct {
+		Author                 struct{ Login string }
+		Body                   string
+		CreatedAt, SubmittedAt time.Time
+	}
+	dec := json.NewDecoder(strings.NewReader(out))
+	for {
+		var n struct {
+			Number   int
+			Comments struct {
+				TotalCount int
+				Nodes      []note
+			}
+			Reviews struct{ Nodes []note }
+		}
+		if err := dec.Decode(&n); err == io.EOF {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("parse gh output: %w", err)
+		}
+		i := slices.IndexFunc(prs, func(p PR) bool { return p.Number == n.Number })
+		if i < 0 {
+			continue
+		}
+		p := &prs[i]
+		see := func(by string, at time.Time) {
+			if at.After(p.LastAt) {
+				p.LastBy, p.LastAt = by, at
+			}
+		}
+		p.Comments = n.Comments.TotalCount
+		for _, c := range n.Comments.Nodes {
+			see(byName(c.Author.Login), c.CreatedAt)
+		}
+		for _, r := range n.Reviews.Nodes {
+			if summary(r.Body, r.SubmittedAt) {
+				p.Comments++
+				see(byName(r.Author.Login), r.SubmittedAt)
+			}
+		}
+	}
+}
+
+// summary reports a review that counts as a comment: submitted, not pending, and with a summary.
+func summary(body string, at time.Time) bool { return strings.TrimSpace(body) != "" && !at.IsZero() }
+
+// byName is an author's login, or "ghost", GitHub's name for a deleted account, which has none.
+func byName(login string) string {
+	if login == "" {
+		return "ghost"
+	}
+	return login
+}
+
+// PRComments reads a pull request's conversation comments and review summaries, oldest first.
+func (g Git) PRComments(ctx context.Context, repo, dir string, number int) ([]Comment, error) {
+	slug, err := g.Slug(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	owner, name, _ := strings.Cut(slug, "/")
+	out, err := command(ctx, dir, ghTimeout, "gh", "api", "graphql", "-f", "owner="+owner, "-f", "name="+name,
+		"-F", "number="+strconv.Itoa(number), "-f", "query="+commentsQuery, "--jq", ".data.repository.pullRequest")
+	if err != nil {
+		return nil, err
+	}
+	return ParseComments(out)
+}
+
+// commentsQuery reads one PR's comments and reviews; __typename says which authors are bots.
+// shortcut: the newest 100 of each; page them if a PR collects more.
+const commentsQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){` +
+	`comments(last:100){nodes{author{login __typename}body createdAt}}` +
+	`reviews(last:100){nodes{author{login __typename}body state submittedAt}}}}}`
+
+// ParseComments parses the pull request commentsQuery returns: its comments, and its reviews with a summary.
+func ParseComments(out string) ([]Comment, error) {
+	type author struct {
+		Login    string
+		Typename string `json:"__typename"`
+	}
+	var raw struct {
+		Comments struct {
+			Nodes []struct {
+				Author    author
+				Body      string
+				CreatedAt time.Time
+			}
+		}
+		Reviews struct {
+			Nodes []struct {
+				Author      author
+				Body, State string
+				SubmittedAt time.Time
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, fmt.Errorf("parse gh output: %w", err)
+	}
+	var cs []Comment
+	for _, c := range raw.Comments.Nodes {
+		cs = append(cs, Comment{Author: byName(c.Author.Login), Bot: c.Author.Typename == "Bot", Body: c.Body, When: c.CreatedAt})
+	}
+	for _, r := range raw.Reviews.Nodes {
+		if summary(r.Body, r.SubmittedAt) {
+			cs = append(cs, Comment{Author: byName(r.Author.Login), Bot: r.Author.Typename == "Bot", Body: r.Body, When: r.SubmittedAt, State: r.State})
+		}
+	}
+	slices.SortStableFunc(cs, func(a, b Comment) int { return a.When.Compare(b.When) })
+	return cs, nil
 }
 
 // MarkRequested sets ForMe on the PRs listed in `gh pr list --json number` output.

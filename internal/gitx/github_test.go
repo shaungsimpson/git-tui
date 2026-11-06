@@ -137,3 +137,38 @@ func TestStack(t *testing.T) {
 		t.Fatalf("a loop should list both PRs once, got %v", s)
 	}
 }
+
+func TestMarkComments(t *testing.T) {
+	prs := []PR{{Number: 1}, {Number: 2}}
+	// gh prints one node per line; a review needs a summary to count, and a pending one never counts.
+	out := `{"number":1,"comments":{"totalCount":2,"nodes":[{"author":{"login":"a"},"createdAt":"2026-10-01T00:00:00Z"}]},
+	 "reviews":{"nodes":[{"author":{"login":"b"},"body":"Looks good","submittedAt":"2026-10-02T00:00:00Z"},
+	  {"author":{"login":"c"},"body":"","submittedAt":"2026-10-03T00:00:00Z"},{"author":{"login":"d"},"body":"Draft note","submittedAt":null}]}}
+{"number":9,"comments":{"totalCount":5,"nodes":[]},"reviews":{"nodes":[]}}`
+	if err := MarkComments(prs, out); err != nil {
+		t.Fatal(err)
+	}
+	if p := prs[0]; p.Comments != 3 || p.LastBy != "b" || !p.LastAt.Equal(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("PR 1 should count 2 comments and 1 review, the review newest: %+v", p)
+	}
+	if prs[1].Comments != 0 {
+		t.Fatal("a PR with no node keeps no count")
+	}
+	if MarkComments(prs, "{") == nil {
+		t.Fatal("broken output should be an error")
+	}
+}
+
+func TestParseComments(t *testing.T) {
+	out := `{"comments":{"nodes":[{"author":{"login":"coderabbitai","__typename":"Bot"},"body":"Walkthrough","createdAt":"2026-10-03T00:00:00Z"},
+	  {"author":null,"body":"From a deleted account","createdAt":"2026-10-01T00:00:00Z"}]},
+	 "reviews":{"nodes":[{"author":{"login":"b","__typename":"User"},"body":"Needs a test","state":"CHANGES_REQUESTED","submittedAt":"2026-10-02T00:00:00Z"},
+	  {"author":{"login":"c","__typename":"User"},"body":"","state":"APPROVED","submittedAt":"2026-10-04T00:00:00Z"}]}}`
+	cs, err := ParseComments(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 3 || cs[0].Author != "ghost" || cs[1].State != "CHANGES_REQUESTED" || !cs[2].Bot || cs[1].Bot {
+		t.Fatalf("want oldest first, the empty approval left out and the bot marked: %+v", cs)
+	}
+}

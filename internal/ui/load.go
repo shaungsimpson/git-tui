@@ -72,6 +72,7 @@ const (
 	kindWhy
 	kindIncoming
 	kindUnfetched
+	kindComments
 )
 
 // github reports whether a kind is GitHub data, shared between clones of one repository.
@@ -110,6 +111,9 @@ func (m *Model) ensure(force bool) tea.Cmd {
 	}
 	if m.view == viewRuns {
 		cmds = append(cmds, m.loadWhy(force))
+	}
+	if m.view == viewPRs {
+		cmds = append(cmds, m.loadComments(force))
 	}
 	if m.cmpOpen() && (force || due(&m.cmp.res, localAge)) { // an open commit list is git data on screen too
 		cmds = append(cmds, m.loadCompare())
@@ -241,6 +245,36 @@ func (m *Model) loadWhy(force bool) tea.Cmd {
 	return start(m, s, true, kindWhy, -1, func(ctx context.Context) ([]string, error) { return src.RunReasons(ctx, dir, r) })
 }
 
+// prComments is a PR's comments, and its count in the list when they loaded, so a new count reloads them.
+type prComments struct {
+	n    int
+	list []gitx.Comment
+}
+
+// loadComments reads the selected PR's comments for its detail page: on the GitHub tier, and at once when the
+// list's count no longer matches the one they loaded with.
+func (m *Model) loadComments(force bool) tea.Cmd {
+	p, ok := m.selectedPR()
+	if !ok || !m.inspect { // only the detail page shows them
+		return nil
+	}
+	s := m.comments[p.URL]
+	if s == nil {
+		s = &slot[prComments]{}
+		m.comments[p.URL] = s
+	}
+	force = force || s.loaded && !s.loading && s.err == nil && s.val.n != p.Comments
+	i := slices.IndexFunc(m.repos, func(rs *repoState) bool { return rs.cfg.Name == p.Repo })
+	if i < 0 {
+		return nil
+	}
+	src, dir, n := m.opts.Source, m.repos[i].cfg.Path, p.Comments
+	return start(m, s, force, kindComments, -1, func(ctx context.Context) (prComments, error) {
+		list, err := src.PRComments(ctx, p.Repo, dir, p.Number)
+		return prComments{n, list}, err
+	})
+}
+
 // applyResult stores a load result and keeps the same row selected if the list reorders around it.
 func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 	var cmd tea.Cmd
@@ -264,7 +298,7 @@ func (m *Model) applyResult(msg resultMsg) tea.Cmd {
 		m.shareGitHub()
 		cmd = m.ensure(false) // the GitHub loads that waited for it
 	case kindPRs:
-		cmd = m.watchReviews()
+		cmd = tea.Batch(m.watchReviews(), m.loadComments(false)) // a new count on the open page reloads its comments
 	case kindDeps:
 		cmd = m.followDeploy(msg.repo)
 	case kindRuns:

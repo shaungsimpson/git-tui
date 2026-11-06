@@ -638,6 +638,32 @@ func TestDemoShowsEveryFeature(t *testing.T) {
 	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "▸ left-pad/core") || !strings.Contains(d, "▸ Commits") || !strings.Contains(d, "devDependencies  patch") {
 		t.Fatalf("the demo's bot PR should show a formatted table and a closed section:\n%s", d)
 	}
+	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return p.Comments > 0 })
+	p := m.prList()[m.cursor[viewPRs]]
+	if row := ansi.Strip(m.row(m.prSegs(p, 140, true), 140, false, false)[0]); !strings.HasSuffix(strings.TrimSpace(row), "💬 3") {
+		t.Fatalf("demo PR rows should end with their comment count: %q", row)
+	}
+	m.profile = ProfileASCII
+	if row := ansi.Strip(m.row(m.prSegs(p, 140, true), 140, false, false)[0]); !strings.HasSuffix(strings.TrimSpace(row), "#3") {
+		t.Fatalf("the ASCII header should count comments without the emoji: %q", row)
+	}
+	m.profile = ProfileFull
+	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "💬 3, latest by coderabbitai") {
+		t.Fatalf("a PR page should say who commented last:\n%s", d)
+	}
+	d := ansi.Strip(strings.Join(m.detailLines(), "\n"))
+	if !strings.Contains(d, "Comments (3)") || !strings.Contains(d, "changes requested") || !strings.Contains(d, "bot, z shows it") || strings.Contains(d, "Walkthrough") {
+		t.Fatalf("demo PR pages should show comments and a review, a bot's folded:\n%s", d)
+	}
+	if press(m, "z"); !strings.Contains(ansi.Strip(strings.Join(m.detailLines(), "\n")), "Walkthrough") {
+		t.Fatal("z should open a bot's comment")
+	}
+	press(m, "z")
+	cs := m.comments[p.URL]
+	cs.val.n = 0 // as if the list counted more comments since they loaded
+	if drain(m, m.ensure(false)); cs.val.n != p.Comments {
+		t.Fatal("a new count in the list should reload the open page's comments")
+	}
 	m.cursor[viewPRs] = 0
 	press(m, "J", "d")
 	if m.cursor[viewPRs] != 1 || !m.diff.open {

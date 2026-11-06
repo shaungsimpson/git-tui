@@ -26,12 +26,11 @@ type mdLine struct {
 	pic  *termimg.Link
 }
 
-// mdCache is the last description formatted, so scrolling and redraws do not parse it again.
-type mdCache struct {
+// mdKey is one formatting of a description or comment, kept so scrolling and redraws do not parse it again.
+type mdKey struct {
 	body       string
 	w          int
 	dark, open bool
-	lines      []mdLine
 }
 
 var mdParser = goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
@@ -58,9 +57,12 @@ func attr(tag, name string) string {
 }
 
 // descLines is a PR's description as the detail page draws it, formatted or raw, and how many lines are left out.
-func (m *Model) descLines(p gitx.PR) ([]mdLine, int) {
+func (m *Model) descLines(p gitx.PR) ([]mdLine, int) { return m.mdLines(p.Body, m.openFor == p.URL) }
+
+// mdLines is a description or comment, formatted or raw, and how many lines are left out.
+func (m *Model) mdLines(body string, open bool) ([]mdLine, int) {
 	if m.rawMD {
-		shown, more := bodyLines(p.Body)
+		shown, more := bodyLines(body)
 		var out []mdLine
 		for _, l := range shown {
 			out = append(out, mdLine{text: " " + m.linkify(clean(l), lipgloss.NewStyle())})
@@ -70,7 +72,7 @@ func (m *Model) descLines(p gitx.PR) ([]mdLine, int) {
 		}
 		return out, more
 	}
-	lines := m.markdown(p.Body, m.width, m.openFor == p.URL)
+	lines := m.markdown(body, m.width, open)
 	if len(lines) > maxBodyLines {
 		return lines[:maxBodyLines], len(lines) - maxBodyLines
 	}
@@ -79,9 +81,12 @@ func (m *Model) descLines(p gitx.PR) ([]mdLine, int) {
 
 // markdown formats a description w columns wide; open shows the contents of its <details> sections.
 func (m *Model) markdown(body string, w int, open bool) []mdLine {
-	c := &m.mdc
-	if c.lines != nil && c.body == body && c.w == w && c.dark == m.dark && c.open == open {
-		return c.lines
+	k := mdKey{body, w, m.dark, open}
+	if lines, ok := m.mdc[k]; ok {
+		return lines
+	}
+	if len(m.mdc) > 200 { // old widths and pages; what is on screen formats again once
+		clear(m.mdc)
 	}
 	src := []byte(body)
 	r := &mdRender{m: m, src: src, w: w, open: open, out: []mdLine{}}
@@ -89,7 +94,7 @@ func (m *Model) markdown(body string, w int, open bool) []mdLine {
 	for len(r.out) > 0 && r.out[len(r.out)-1].pic == nil && strings.TrimSpace(ansi.Strip(r.out[len(r.out)-1].text)) == "" {
 		r.out = r.out[:len(r.out)-1]
 	}
-	*c = mdCache{body, w, m.dark, open, r.out}
+	m.mdc[k] = r.out
 	return r.out
 }
 
@@ -280,16 +285,25 @@ func (r *mdRender) block(n ast.Node, first, rest string) {
 
 func segValue(s text.Segment, src []byte) []byte { return s.Value(src) }
 
-// canMarkdown offers m on a PR's detail page when it has a description.
+// canMarkdown offers m on a PR's detail page when it has a description or comments.
 func (m *Model) canMarkdown() bool {
 	p, ok := m.selectedPR()
-	return ok && m.inspect && strings.TrimSpace(p.Body) != ""
+	return ok && m.inspect && (strings.TrimSpace(p.Body) != "" || len(m.shownComments(p)) > 0)
 }
 
-// canSections offers z when the formatted description has <details> sections to open or close.
+// canSections offers z when the formatted page has <details> sections or bots' comments to open or close.
 func (m *Model) canSections() bool {
 	p, _ := m.selectedPR()
-	return m.canMarkdown() && !m.rawMD && strings.Contains(strings.ToLower(p.Body), "<details")
+	return m.canMarkdown() && !m.rawMD && (strings.Contains(strings.ToLower(p.Body), "<details") ||
+		slices.ContainsFunc(m.shownComments(p), func(c gitx.Comment) bool { return c.Bot }))
+}
+
+// shownComments is a PR's loaded comments, or none.
+func (m *Model) shownComments(p gitx.PR) []gitx.Comment {
+	if s := m.comments[p.URL]; s != nil {
+		return s.val.list
+	}
+	return nil
 }
 
 func taskBox(item ast.Node) *east.TaskCheckBox {

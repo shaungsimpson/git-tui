@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -217,7 +218,37 @@ func (Demo) PullRequests(_ context.Context, repo, dir string) ([]PR, error) {
 			Files: []PRFile{{"package.json", 2, 2}, {"pnpm-lock.yaml", 24, 24}},
 		})
 	}
+	for i := range prs {
+		if cs := demoComments(prs[i]); len(cs) > 0 {
+			prs[i].Comments, prs[i].LastBy, prs[i].LastAt = len(cs), cs[len(cs)-1].Author, cs[len(cs)-1].When
+		}
+	}
 	return prs, nil
+}
+
+// demoComments is a discussion on every other PR: a question, a review asking for changes and a bot's summary.
+// An approval with no summary is left out, as GitHub's would be.
+func demoComments(p PR) []Comment {
+	if p.Number%2 == 1 {
+		return nil
+	}
+	return []Comment{
+		{Author: "bob", Body: "Could we round once at the end instead? `round(a) + round(b)` drifts by one on some inputs.", When: p.Updated.Add(-3 * time.Hour)},
+		{Author: "chuck", Body: "Needs a test for **negative** amounts before this goes in.", When: p.Updated.Add(-2 * time.Hour), State: "CHANGES_REQUESTED"},
+		{Author: "coderabbitai", Bot: true, When: p.Updated.Add(-time.Hour), Body: "## Walkthrough\n\nThe total is now rounded once, after the amounts are added.\n\n" +
+			"| File | Change |\n|---|---|\n| `app/maths.ts` | Round the sum, not each number |\n| `app/maths.test.ts` | Cover the edge cases |"},
+	}
+}
+
+func (d Demo) PRComments(ctx context.Context, repo, dir string, number int) ([]Comment, error) {
+	prs, err := d.PullRequests(ctx, repo, dir)
+	if err != nil {
+		return nil, err
+	}
+	if i := slices.IndexFunc(prs, func(p PR) bool { return p.Number == number }); i >= 0 {
+		return demoComments(prs[i]), nil
+	}
+	return nil, nil
 }
 
 // demoRenovate is a dependency bot's PR description: an alert, a table with badges, release notes in a

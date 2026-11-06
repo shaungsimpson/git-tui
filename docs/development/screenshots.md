@@ -25,6 +25,7 @@ A Ghostty window opens, steps through the views and closes, then a narrower one 
 docs/images/overview.webp
 docs/images/pull-requests.webp
 docs/images/detail.webp
+docs/images/comments.webp
 docs/images/header-ascii.webp
 docs/images/header-text.webp
 docs/images/light.webp

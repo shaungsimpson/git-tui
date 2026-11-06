@@ -71,6 +71,7 @@ type Source interface {
 	RunReasons(ctx context.Context, dir string, run Run) ([]string, error) // why a stopped run stopped
 	Diff(ctx context.Context, repo, dir string) ([]string, error)
 	PRDiff(ctx context.Context, repo, dir string, number int) ([]string, error)
+	PRComments(ctx context.Context, repo, dir string, number int) ([]Comment, error) // conversation and review summaries
 	Viewer(ctx context.Context, dir string) (Viewer, error)
 	Slug(ctx context.Context, dir string) (string, error)       // the GitHub "owner/name" of origin
 	Image(ctx context.Context, url string) (image.Image, error) // a picture already checked with termimg.Allowed

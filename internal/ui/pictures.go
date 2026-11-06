@@ -66,7 +66,9 @@ func (m *Model) ensurePics() tea.Cmd {
 		return nil
 	}
 	cols := m.picCols()
-	desc, _ := m.descLines(m.prList()[*cur]) // only the pictures drawn: a badge within text shows its alt text
+	p := m.prList()[*cur]
+	desc, _ := m.descLines(p) // only the pictures drawn: a badge within text shows its alt text
+	desc = append(desc, m.commentLines(p)...)
 	var cmds []tea.Cmd
 	var place strings.Builder
 	for _, line := range desc {

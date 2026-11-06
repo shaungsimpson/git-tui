@@ -41,7 +41,7 @@ var clock = time.Now
 // ageOf is how long data of a kind stays fresh.
 func ageOf(k dataKind) time.Duration {
 	switch k {
-	case kindPRs, kindDeps, kindRuns, kindUnfetched:
+	case kindPRs, kindDeps, kindRuns, kindUnfetched, kindComments:
 		return githubAge
 	case kindViewer:
 		return viewerAge

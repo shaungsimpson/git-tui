@@ -46,7 +46,7 @@ front() {
   osascript -e 'tell application "System Events" to unix id of first process whose frontmost is true'
 }
 
-# keys types each argument into the window: a character, or f2, enter, esc, tab, shift-tab or space. Keystrokes go to whatever app is in front,
+# keys types each argument into the window: a character, or f2, end, enter, esc, tab, shift-tab or space. Keystrokes go to whatever app is in front,
 # so it brings the screenshot window forward first and stops rather than type into anything else.
 keys() {
   for k in "$@"; do
@@ -57,6 +57,7 @@ keys() {
     fi
     case $k in
       f2) osascript -e 'tell application "System Events" to key code 120' ;;
+      end) osascript -e 'tell application "System Events" to key code 119' ;;
       enter) osascript -e 'tell application "System Events" to key code 36' ;;
       esc) osascript -e 'tell application "System Events" to key code 53' ;;
       tab) osascript -e 'tell application "System Events" to key code 48' ;;
@@ -93,6 +94,8 @@ keys g p
 shot pull-requests
 keys v
 shot detail
+keys end # the bottom of the page: comments, then the changed files
+shot comments
 keys esc b
 shot header-ascii
 keys b

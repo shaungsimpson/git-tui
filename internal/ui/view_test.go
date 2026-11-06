@@ -513,3 +513,14 @@ func TestWrapLinesHangsUnderIndent(t *testing.T) {
 		t.Fatalf("a line without an indent keeps all of its text: %q", got[len(got)-1])
 	}
 }
+
+func TestCommentsFailedLoad(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "p")
+	m.cursor[viewPRs] = slices.IndexFunc(m.prList(), func(p gitx.PR) bool { return p.Comments > 0 })
+	p := m.prList()[m.cursor[viewPRs]]
+	m.comments[p.URL] = &slot[prComments]{err: errors.New("HTTP 502")}
+	if d := ansi.Strip(strings.Join(m.detailLines(), "\n")); !strings.Contains(d, "Could not read the comments: HTTP 502") {
+		t.Fatalf("a failed load should say why on the page:\n%s", d)
+	}
+}

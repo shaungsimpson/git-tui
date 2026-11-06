@@ -756,7 +756,64 @@ func (m *Model) prSegs(p gitx.PR, w int, showRepo bool) []seg {
 	label, lw := m.statusLabel(review, w)
 	segs = append(segs, seg{pad("#"+strconv.Itoa(p.Number), 6), m.st.id}, seg{pad(label, lw), rst})
 	segs = append(segs, seg{m.stamp(p.Updated, w) + "  ", m.ageStyle(p)})
-	return titled(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)}, m.stacked(m.view), w)
+	segs = titled(segs, seg{clean(p.Title) + "  ", m.st.text}, seg{clean(p.Author), m.authorStyle(p.Author, true)}, m.stacked(m.view), w)
+	if p.Comments > 0 { // last, so a narrow row drops it first
+		segs = append(segs, seg{"  " + m.commentMark(p.Comments), m.st.muted})
+	}
+	return segs
+}
+
+// commentMark is a PR's comment count; the ASCII and text headers say the terminal may not draw emoji, as for 🥞.
+func (m *Model) commentMark(n int) string {
+	if m.profile == ProfileASCII || m.profile == ProfileText {
+		return "#" + strconv.Itoa(n)
+	}
+	return "💬 " + strconv.Itoa(n)
+}
+
+// reviewState is how a review's comment heading names its state.
+var reviewState = map[string]string{"APPROVED": "approved", "CHANGES_REQUESTED": "changes requested", "COMMENTED": "commented", "DISMISSED": "dismissed"}
+
+// commentLines is the comments section of a PR's page, loaded while the page is open. A bot's comment shows
+// only its heading until z opens the page's sections: bots' summaries are long and rarely read.
+func (m *Model) commentLines(p gitx.PR) []mdLine {
+	s := m.comments[p.URL]
+	if p.Comments == 0 && (s == nil || len(s.val.list) == 0) {
+		return nil
+	}
+	text := func(s string) mdLine { return mdLine{text: s} }
+	out := []mdLine{text(""), text(m.st.title.Render(" Comments"))}
+	switch {
+	case s == nil || !s.loaded && s.err == nil:
+		return append(out, text(m.st.muted.Render(" Loading from GitHub…")))
+	case !s.loaded:
+		return append(out, text(m.st.bad.Render(" Could not read the comments: "+clean(s.err.Error()))))
+	}
+	out[1] = text(m.st.title.Render(fmt.Sprintf(" Comments (%d)", len(s.val.list))))
+	open := m.openFor == p.URL || m.rawMD // raw source has no sections to open
+	for _, c := range s.val.list {
+		head := " " + m.authorStyle(c.Author, true).Render(clean(c.Author)) + m.st.muted.Render(" · ") + m.st.date.Render(m.when(c.When))
+		if st, ok := reviewState[c.State]; ok {
+			rst := m.st.muted
+			switch c.State {
+			case "APPROVED":
+				rst = m.st.ok
+			case "CHANGES_REQUESTED":
+				rst = m.st.bad
+			}
+			head += m.st.muted.Render(" · ") + rst.Render(st)
+		}
+		if c.Bot && !open {
+			out = append(out, text(""), text(head+m.st.muted.Render(" · bot, z shows it")))
+			continue
+		}
+		body, more := m.mdLines(c.Body, open)
+		out = append(append(out, text(""), text(head)), body...)
+		if more > 0 {
+			out = append(out, text(m.st.muted.Render(fmt.Sprintf(" … %d more lines. Press o to read the rest on GitHub.", more))))
+		}
+	}
+	return out
 }
 
 func (m *Model) prDetail(p gitx.PR) []string {
@@ -779,6 +836,9 @@ func (m *Model) prDetail(p gitx.PR) []string {
 	if m.ready(p) {
 		lines = slices.Insert(lines, 5, m.kv("Ready", "✔ approved, checks passing", m.st.ok))
 	}
+	if p.Comments > 0 {
+		lines = append(lines, m.kv("Comments", fmt.Sprintf("%s, latest by %s %s", m.commentMark(p.Comments), clean(p.LastBy), m.when(p.LastAt)), m.st.text))
+	}
 	if s, depth := m.prStack(p); s != nil {
 		lines = append(lines, m.kv("Stack", m.stackMark()+fmt.Sprintf(" %d PRs, merge in this order", len(s)), m.st.text))
 		for i, q := range s {
@@ -799,21 +859,29 @@ func (m *Model) prDetail(p gitx.PR) []string {
 		}
 		lines = append(lines, "", m.st.title.Render(title))
 		desc, more := m.descLines(p)
-		for _, l := range desc {
-			if l.pic != nil {
-				lines = append(lines, m.picLines(*l.pic)...)
-			} else {
-				lines = append(lines, l.text)
-			}
-		}
+		lines = append(lines, m.drawMD(desc)...)
 		if more > 0 {
 			lines = append(lines, m.st.muted.Render(fmt.Sprintf(" … %d more lines. Press o to read the rest on GitHub.", more)))
 		}
 	}
+	lines = append(lines, m.drawMD(m.commentLines(p))...)
 	if len(p.Files) > 0 {
 		lines = append(lines, "", m.st.title.Render(fmt.Sprintf(" Files changed (%d) · d shows the diff", len(p.Files))))
 		for _, f := range p.Files {
 			lines = append(lines, " "+m.st.ok.Render(pad("+"+strconv.Itoa(f.Additions), 5))+m.st.bad.Render(pad("-"+strconv.Itoa(f.Deletions), 5))+m.st.text.Render(clean(f.Path)))
+		}
+	}
+	return lines
+}
+
+// drawMD draws formatted lines, each picture where it stands.
+func (m *Model) drawMD(md []mdLine) []string {
+	var lines []string
+	for _, l := range md {
+		if l.pic != nil {
+			lines = append(lines, m.picLines(*l.pic)...)
+		} else {
+			lines = append(lines, l.text)
 		}
 	}
 	return lines

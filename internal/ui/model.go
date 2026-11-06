@@ -93,26 +93,27 @@ type Model struct {
 	dates          int  // index into dateFormats
 	status         int  // index into statusStyles
 
-	view    viewID
-	focus   paneID
-	repo    int     // 0 = all repositories, i+1 = repos[i]
-	rawMD   bool    // PR descriptions show their markdown source
-	openFor string  // the PR whose <details> sections are open, by URL
-	mdc     mdCache // the last description formatted
-	group   string  // only repositories in this group are shown and loaded; empty shows all
-	cursor  [viewCount]int
-	sorts   [viewCount]int // each view's position in sortsOf
-	offset  [viewCount]int
-	inspect bool // the detail page: the selected row's details fill the body
-	detOff  int
-	cmp     compareState
-	diff    diffState
-	why     map[int64]*slot[[]string] // why each stopped deploy run stopped, by run ID, read when first selected
-	pics    map[string]*picState      // by picture link
-	picIDs  int
-	picPage string             // the row whose pictures are loading
-	picCtx  context.Context    // those loads'; nil until one starts
-	picStop context.CancelFunc // cancels them when the page changes
+	view     viewID
+	focus    paneID
+	repo     int                // 0 = all repositories, i+1 = repos[i]
+	rawMD    bool               // PR descriptions show their markdown source
+	openFor  string             // the PR whose <details> sections are open, by URL
+	mdc      map[mdKey][]mdLine // formatted descriptions and comments
+	group    string             // only repositories in this group are shown and loaded; empty shows all
+	cursor   [viewCount]int
+	sorts    [viewCount]int // each view's position in sortsOf
+	offset   [viewCount]int
+	inspect  bool // the detail page: the selected row's details fill the body
+	detOff   int
+	cmp      compareState
+	diff     diffState
+	why      map[int64]*slot[[]string]    // why each stopped deploy run stopped, by run ID, read when first selected
+	comments map[string]*slot[prComments] // each PR's comments, by URL, read while its detail page is open
+	pics     map[string]*picState         // by picture link
+	picIDs   int
+	picPage  string             // the row whose pictures are loading
+	picCtx   context.Context    // those loads'; nil until one starts
+	picStop  context.CancelFunc // cancels them when the page changes
 
 	profile Profile
 	me      slot[gitx.Viewer]
@@ -162,6 +163,8 @@ func New(o Options) *Model {
 	m := &Model{opts: o, dark: true, focus: paneMain, pics: map[string]*picState{}, profile: o.Profile, utc: o.UTC, noPreview: o.NoPreview, focused: true, lastUse: clock(), scan: scanState{fix: -1}}
 	m.gh = map[string]*ghState{}
 	m.why = map[int64]*slot[[]string]{}
+	m.comments = map[string]*slot[prComments]{}
+	m.mdc = map[mdKey][]mdLine{}
 	m.dates = max(0, slices.Index(dateFormats, o.Dates)) // an unknown saved name keeps the default
 	m.status = max(0, slices.Index(statusStyles, o.Status))
 	m.rawMD = o.RawMarkdown
