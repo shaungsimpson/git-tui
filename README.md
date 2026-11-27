@@ -6,12 +6,12 @@ A terminal command centre for your repositories. It is **read-only**: it shows l
 
 ## Get started
 
-You need Git, a GitHub account with access to this repository, and Go 1.21 or newer, which fetches the Go version the app needs by itself (see [Prerequisites](#prerequisites)).
+You need Git, a GitHub account, and Go 1.21 or newer, which fetches the Go version the app needs by itself (see [Prerequisites](#prerequisites)).
 
-1. Install the `git-tui` command. The repository is private, so `GOPRIVATE` tells Go to fetch it with your Git credentials instead of asking public services:
+1. Install the `git-tui` command:
 
    ```sh
-   GOPRIVATE=github.com/shaungsimpson/git-tui go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest
+   go install github.com/shaungsimpson/git-tui/cmd/git-tui@latest
    git-tui -version
    ```
 
@@ -27,8 +27,6 @@ You need Git, a GitHub account with access to this repository, and Go 1.21 or ne
 
    If it fails:
 
-   - `404 Not Found` from `sum.golang.org`: Go asked a public service about a private repository. Set `GOPRIVATE` as above, or once with `go env -w GOPRIVATE=github.com/shaungsimpson/git-tui`.
-   - `could not read Username for 'https://github.com'`: Git cannot log in to GitHub. Run `gh auth login` and then `gh auth setup-git`, or if you use SSH keys, `git config --global url."git@github.com:".insteadOf "https://github.com/"`.
    - `command not found: git-tui` after a successful install: add Go's install directory to your `PATH`. `go env GOBIN` prints it; if that is empty, it is `$(go env GOPATH)/bin`, usually `~/go/bin`.
    - It installs an older version: Go has not seen a release tagged in the last few minutes. Use `@v0.3.0` (or whichever version) instead of `@latest`, or try again shortly.
 
@@ -61,7 +59,7 @@ git-tui tells you when a newer stable release exists, and how to install it by h
 ![Connections with the git-tui row selected: a release one version behind, the latest release and the go install command for it](docs/images/connections.webp)
 
 - **From the command line.** `git-tui -check-update` checks now, whatever the build, prints the same details and exits without starting the interface. It exits 0 when the check worked, whether or not there is a newer release, and 1 when it failed (after printing any earlier result). `-version` never checks.
-- **How it checks.** One `gh api repos/shaungsimpson/git-tui/releases/latest` call (20-second timeout), so it needs `gh` logged in with access to the repository. Only a stable version (`vX.Y.Z`) is accepted. A successful check is cached in `$XDG_CACHE_HOME/git-tui/release.json` (default `~/.cache/git-tui/release.json`) and trusted for 24 hours across launches; a failed check is not cached, keeps the earlier result and its age on screen, and retries like any other load. A missing or unreadable cache only means checking again. Demo mode pretends to run the newest release tag it was built from and finds the next minor release (built after v0.10.0, it runs v0.10.0 and finds v0.11.0), so screenshots taken before a release show the version about to ship. It uses neither the network nor the cache.
+- **How it checks.** One `gh api repos/shaungsimpson/git-tui/releases/latest` call (20-second timeout), so it needs `gh` logged in. Only a stable version (`vX.Y.Z`) is accepted. A successful check is cached in `$XDG_CACHE_HOME/git-tui/release.json` (default `~/.cache/git-tui/release.json`) and trusted for 24 hours across launches; a failed check is not cached, keeps the earlier result and its age on screen, and retries like any other load. A missing or unreadable cache only means checking again. Demo mode pretends to run the newest release tag it was built from and finds the next minor release (built after v0.10.0, it runs v0.10.0 and finds v0.11.0), so screenshots taken before a release show the version about to ship. It uses neither the network nor the cache.
 
 ## Prerequisites
 
@@ -282,3 +280,7 @@ While the filter, rename or folder input is open, all typing and pasted text go 
 ## Working on git-tui
 
 The [development guide](docs/development/README.md) covers building, testing, the checks a pull request must pass, regenerating the screenshots (with the one-off macOS setup), releasing, and the code layout. [AGENTS.md](AGENTS.md) has the definition of done and the design principles, for people and coding agents alike.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

@@ -51,7 +51,7 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
 5. **Check it installs** like a user would, from outside the clone. The check prints `installed` only when the `git-tui` first on your PATH is the new version:
 
    ```sh
-   GOPRIVATE=github.com/shaungsimpson/git-tui go install "github.com/shaungsimpson/git-tui/cmd/git-tui@$v" &&
+   go install "github.com/shaungsimpson/git-tui/cmd/git-tui@$v" &&
    test "$(git-tui -version)" = "git-tui $v" && echo installed
    ```
 

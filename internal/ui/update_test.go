@@ -115,7 +115,7 @@ func TestUpdateReport(t *testing.T) {
 	l := update.Latest{Version: "v0.5.0", Checked: now.Add(-3 * time.Hour)}
 	out := strings.Join(UpdateReport(update.Build{Kind: update.Release, Version: "v0.4.1"}, "/bin/git-tui", l, nil, now), "\n")
 	for _, want := range []string{"git-tui: update available", "Executable: /bin/git-tui", "checked 3h ago",
-		"GOPRIVATE=github.com/shaungsimpson/git-tui go install github.com/shaungsimpson/git-tui/cmd/git-tui@v0.5.0"} { // GOPRIVATE must name this module's owner
+		"go install github.com/shaungsimpson/git-tui/cmd/git-tui@v0.5.0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("release report is missing %q:\n%s", want, out)
 		}
