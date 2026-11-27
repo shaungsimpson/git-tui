@@ -38,7 +38,6 @@ var mdParser = goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
 var (
 	commentRE    = regexp.MustCompile(`(?s)<!--.*?-->`)
 	summaryRE    = regexp.MustCompile(`(?is)<summary[^>]*>(.*?)</summary>`)
-	detailsRE    = regexp.MustCompile(`(?is)<details[^>]*>(.*?)</details>`)
 	detailsTagRE = regexp.MustCompile(`(?i)</?details\b`)
 	anchorRE     = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)
 	imgRE        = regexp.MustCompile(`(?i)<img\b[^>]*>`)
@@ -515,11 +514,18 @@ func (r *mdRender) htmlText(h *ast.HTMLBlock) string {
 // lines, shows its summary, and its contents only when open.
 func (r *mdRender) html(raw, first, rest string) {
 	drawn, last := 0, 0
-	for _, loc := range detailsRE.FindAllStringSubmatchIndex(raw, -1) {
+	for _, loc := range detailsTagRE.FindAllStringIndex(raw, -1) {
+		if loc[0] < last || raw[loc[0]+1] == '/' { // inside the section just drawn, or a stray </details>
+			continue
+		}
+		end := closedAt(raw[loc[0]:], 0) // counted, so a nested section's </details> does not end this one
+		if end < 0 {
+			break
+		}
 		drawn = r.htmlLines(raw[last:loc[0]], first, rest, drawn)
-		r.section(raw[loc[2]:loc[3]], r.pick(drawn, first, rest), rest)
+		r.section(raw[loc[0]:loc[0]+end], r.pick(drawn, first, rest), rest)
 		drawn++
-		last = loc[1]
+		last = loc[0] + end
 	}
 	r.htmlLines(raw[last:], first, rest, drawn)
 }
