@@ -29,7 +29,7 @@ window() {
 launch() {
   open -na "$ghostty" --args --config-default-files=false --font-size=13 --window-width="$1" --window-height="$2" \
     --window-save-state=never --confirm-close-surface=false --quit-after-last-window-closed=true \
-    --title=git-tui --command="$(printf %q "$bin") -demo -profile full"
+    --title=git-tui --command="env TZ=UTC $(printf %q "$bin") -demo -profile full" # UTC: pictures never show your zone
   pid=""
   for _ in $(seq 50); do
     pid=$(pgrep -n -x ghostty || true)
