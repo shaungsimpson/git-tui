@@ -225,7 +225,7 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `w`               | Cycle how list rows show dates: numeric (`2026-03-02 06:00`, without the year on narrow lists), relative (`3h ago`, the date once it is a week old), short (`2 Mar 06:00`) or weekday (`Mon 2 Mar 06:00`). Dates from an earlier year show the year instead of the time. Detail pages always show the exact time and how long ago. Remembered between runs |
 | `c`               | Cycle how Pull requests rows show review status: full word, letter, symbol or emoji. Remembered between runs |
 | `b`               | Cycle the profile header: full, ASCII, text, off (always shown at the right of the footer) |
-| `]` / `[`         | Show the next or previous group: all repositories, then each group. Offered once a repository has a group. See [Groups](#groups). Remembered between runs |
+| `]` / `[`         | Show the next or previous group: all repositories, then each group. Offered once a repository has a group, and not on a detail page. See [Groups](#groups). Remembered between runs |
 | `a` `r` `e` `x` `K` `J` `f` | In Connections: add, rename, group, remove, reorder or find repositories; `x` and `f` also work in the focused sidebar. See [Managing repositories](#managing-repositories) |
 | `m`               | On a PR's detail page: show its description and comments formatted or as markdown source. Remembered between runs. See [Descriptions](#descriptions) |
 | `z`               | On a PR's detail page: open or close the description's `<details>` sections and bots' comments |

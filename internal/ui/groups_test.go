@@ -58,6 +58,17 @@ func TestGroupsCycleAndHideRepositories(t *testing.T) {
 	}
 }
 
+// On a detail page ] would change the list under the page, so it waits until the page is closed.
+func TestGroupKeysWaitForTheDetailPage(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "g", "p", "v")
+	open := m.prList()[m.cursor[viewPRs]]
+	press(m, "]", "]")
+	if got := m.prList()[m.cursor[viewPRs]]; m.group != "" || !m.inspect || got.Repo != open.Repo || got.Number != open.Number {
+		t.Fatalf("] on a detail page moved it from %s #%d to %s #%d (group %q)", open.Repo, open.Number, got.Repo, got.Number, m.group)
+	}
+}
+
 func TestSetGroupInConnections(t *testing.T) {
 	m := setup(t, demoOpts(), 120, 30)
 	press(m, "]") // personal, whose only repository is personal-site

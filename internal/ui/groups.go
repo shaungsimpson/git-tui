@@ -21,7 +21,8 @@ func (m *Model) groups() []string {
 	return gs
 }
 
-func (m *Model) hasGroups() bool { return len(m.groups()) > 0 }
+// canGroup leaves a detail page alone: a new group would change the list under it and show another item.
+func (m *Model) canGroup() bool { return len(m.groups()) > 0 && m.notPaging() }
 
 // inGroup reports whether repos[i] is shown: hidden repositories are neither drawn nor loaded.
 func (m *Model) inGroup(i int) bool { return m.group == "" || m.repos[i].cfg.Group == m.group }
