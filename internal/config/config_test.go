@@ -167,6 +167,25 @@ func TestLoadNamesSameNamedFoldersApart(t *testing.T) {
 	}
 }
 
+// The app finds a repository by name, so a name written twice, or a folder name three deep, must still come apart.
+func TestLoadNamesRepeatedNamesApart(t *testing.T) {
+	cfg, err := Load(write(t, `{"repositories":[{"name":"api","path":"/a/api"},{"name":"api","path":"/b/api"},`+
+		`{"path":"/a/x/web"},{"path":"/b/x/web"},{"path":"/c/x/web"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, r := range cfg.Repositories {
+		names = append(names, r.Name)
+	}
+	if got := strings.Join(names, ","); got != "api,b/api,web,x/web,c/x/web" {
+		t.Fatalf("names %s", got)
+	}
+	if err := Save(filepath.Join(t.TempDir(), "c.json"), cfg); err != nil {
+		t.Fatalf("a loaded list should save: %v", err)
+	}
+}
+
 func TestSaveRoundTripsAndKeepsBackup(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	p := write(t, `{"repositories":[{"name":"old","path":"/old"}]}`)

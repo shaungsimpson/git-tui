@@ -89,17 +89,24 @@ func Load(path string) (Config, error) {
 	if err != nil { // nothing half-read reaches the app: its repositories were never validated
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
-	taken := map[string]bool{}
+	written := map[string]bool{} // a name taken from the folder yields to one the file gives, wherever it is
 	for _, r := range cfg.Repositories {
-		taken[r.Name] = r.Name != ""
+		written[r.Name] = r.Name != ""
 	}
+	taken := map[string]bool{}
 	for i := range cfg.Repositories {
 		r := &cfg.Repositories[i]
 		r.Group = strings.TrimSpace(r.Group) // as saving does, so "work " written by hand is not a second work
 		named := r.Name != ""
 		validate(r)
-		if !named && taken[r.Name] { // two folders called api: as when adding, the second gets its parent folder
-			r.Name = filepath.Base(filepath.Dir(r.Path)) + "/" + r.Name
+		// Two repositories called api, named or not: as when adding, the later one gets parent folders until it
+		// is unique, since the app finds a repository by its name.
+		for dir := filepath.Dir(r.Path); taken[r.Name] || !named && written[r.Name]; dir = filepath.Dir(dir) {
+			if dir == filepath.Dir(dir) { // out of parents: the path itself
+				r.Name = r.Path
+				break
+			}
+			r.Name = filepath.Base(dir) + "/" + r.Name
 		}
 		taken[r.Name] = true
 	}
