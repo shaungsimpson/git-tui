@@ -79,12 +79,9 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	}
 	mine := background(func() (string, error) { return reviewRequests(ctx, dir) })
 	owner, name, _ := strings.Cut(slug, "/")
-	counts := background(func() (string, error) {
-		return command(ctx, dir, ghListTimeout, "gh", "api", "graphql", "--paginate", "-f", "owner="+owner, "-f", "name="+name,
-			"-f", "query="+countQuery, "--jq", ".data.repository.pullRequests.nodes[]")
-	})
+	counts := background(func() (string, error) { return commentCounts(ctx, dir, owner, name) })
 	// shortcut: only the 300 most recently created open PRs per repository; raise it if a repository has more.
-	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
+	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", strconv.Itoa(prLimit),
 		"--json", "number,title,author,headRefName,baseRefName,isCrossRepository,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,createdAt,body,files")
 	if err != nil {
 		return nil, err
@@ -104,10 +101,48 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	return prs, nil
 }
 
+// prLimit is how many open PRs a repository's list shows.
+const prLimit = 300
+
+// commentCounts returns countQuery's PR nodes, one JSON value each, for the PRs the list shows and no more, so a
+// repository with many more open PRs neither waits on pages nobody sees nor runs out of time.
+func commentCounts(ctx context.Context, dir, owner, name string) (string, error) {
+	var nodes strings.Builder
+	var after []string
+	for range prLimit / 50 { // countQuery's page size
+		args := append([]string{"api", "graphql", "-f", "owner=" + owner, "-f", "name=" + name, "-f", "query=" + countQuery},
+			after...)
+		out, err := command(ctx, dir, ghTimeout, "gh", append(args, "--jq", ".data.repository.pullRequests")...)
+		if err != nil {
+			return "", err
+		}
+		var page struct {
+			PageInfo struct {
+				HasNextPage bool
+				EndCursor   string
+			}
+			Nodes []json.RawMessage
+		}
+		if err := json.Unmarshal([]byte(out), &page); err != nil {
+			return "", fmt.Errorf("parse gh output: %w", err)
+		}
+		for _, n := range page.Nodes {
+			nodes.Write(n)
+			nodes.WriteByte('\n')
+		}
+		if !page.PageInfo.HasNextPage {
+			break
+		}
+		after = []string{"-f", "endCursor=" + page.PageInfo.EndCursor}
+	}
+	return nodes.String(), nil
+}
+
 // countQuery reads each open PR's comment count and newest comment, and its reviews, which GitHub cannot count
-// without the empty ones. shortcut: the newest 100 reviews per PR; page them if a PR collects more.
+// without the empty ones; newest first, like the list. shortcut: the newest 100 reviews per PR; page them if a PR
+// collects more.
 const countQuery = `query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){` +
-	`pullRequests(states:OPEN,first:50,after:$endCursor){pageInfo{hasNextPage endCursor}nodes{number ` +
+	`pullRequests(states:OPEN,first:50,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number ` +
 	`comments(last:1){totalCount nodes{author{login}createdAt}}reviews(last:100){nodes{author{login}body submittedAt}}}}}}`
 
 // MarkComments sets each PR's comment count and newest commenter from the PR nodes, one JSON value each, that

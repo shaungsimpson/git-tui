@@ -142,6 +142,35 @@ func originRepo(t *testing.T, slug string) string {
 	return dir
 }
 
+func TestCommentCountsStopAtTheListedPRs(t *testing.T) {
+	// Every page says there is another; page n holds PR #n with n comments, and its cursor is "c<n>".
+	log := fakeGH(t, `case "$1 $2" in
+"api graphql")
+  n=0
+  for a in "$@"; do case "$a" in endCursor=c*) n=${a#endCursor=c} ;; esac; done
+  n=$((n+1))
+  echo '{"pageInfo":{"hasNextPage":true,"endCursor":"c'$n'"},"nodes":[{"number":'$n',"comments":{"totalCount":'$n',"nodes":[]},"reviews":{"nodes":[]}}]}' ;;
+"pr list") echo '[{"number":1},{"number":6},{"number":7}]' ;;
+*) echo '[]' ;;
+esac`)
+	prs, err := Git{}.PullRequests(context.Background(), "r", originRepo(t, "acme/r"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := 0
+	for _, c := range ghCalls(t, log) {
+		if slices.Contains(c, "graphql") {
+			pages++
+		}
+	}
+	if pages != prLimit/50 {
+		t.Fatalf("read %d pages of counts, want the %d that cover the listed PRs", pages, prLimit/50)
+	}
+	if prs[0].Comments != 1 || prs[1].Comments != 6 || prs[2].Comments != 0 {
+		t.Fatalf("want counts 1, 6 and none past the last page: %+v", prs)
+	}
+}
+
 func TestPullRequestsShareOneReviewSearch(t *testing.T) {
 	requests.Lock()
 	requests.done = nil // a search an earlier test run made
