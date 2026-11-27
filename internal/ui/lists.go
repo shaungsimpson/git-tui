@@ -2,6 +2,7 @@ package ui
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -249,8 +250,21 @@ func (m *Model) activity() []gitx.Commit {
 	return m.commitsMatching(viewActivity, all)
 }
 
-// prList is the open pull requests of the selected repositories, most recently updated first.
+// prList is the open pull requests of the selected repositories, most recently updated first. Every footer
+// shortcut asks for the selected one, so the list is kept until its inputs change or the next Update or frame.
 func (m *Model) prList() []gitx.PR {
+	key := fmt.Sprintf("%s\x00%d\x00%s", m.filters[viewPRs], m.sorts[viewPRs], m.me.val.Login)
+	for _, i := range m.ghScope() {
+		ps := m.repos[i].gh.prs.val // a load stores a new slice and never edits the old one
+		key += fmt.Sprintf("\x00%d %s %p %d", i, m.repos[i].cfg.Name, ps, len(ps))
+	}
+	if m.prMemo.key != key {
+		m.prMemo.key, m.prMemo.list = key, m.buildPRs()
+	}
+	return m.prMemo.list
+}
+
+func (m *Model) buildPRs() []gitx.PR {
 	var is, rest []string // the keywords n sets work typed after / too, alongside time terms and text
 	for _, w := range strings.Fields(m.filters[viewPRs]) {
 		if l := strings.ToLower(w); l == "is:review" || l == "is:ready" {

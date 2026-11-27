@@ -36,7 +36,7 @@ mise run screenshots        # regenerates docs/images (macOS and Ghostty; see sc
 ```sh
 mise run lint && mise run test && mise run build
 TZ=UTC mise run test        # CI runs in UTC; catches times and layouts that only pass in your own zone
-go test ./internal/ui -run x -bench ManyRepos   # frame and load cost with 30 repositories; run after touching layout or lists
+go test ./internal/ui -run x -bench Many   # frame, key and load cost with 30 repositories; run after touching layout or lists
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same lint and test checks plus a build on every pull request to `main` and every push to `main`. Tests use fixtures and temporary Git repositories; they never touch the network or a real terminal.

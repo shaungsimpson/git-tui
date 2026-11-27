@@ -113,6 +113,29 @@ func TestSortCyclesEachListAndKeepsTheSelection(t *testing.T) {
 	}
 }
 
+// TestPRListFollowsItsInputs changes each thing the kept PR list is built from, outside Update, and expects a fresh list.
+func TestPRListFollowsItsInputs(t *testing.T) {
+	m := setup(t, demoOpts(), 120, 30)
+	r := m.repos[0]
+	for _, c := range []struct {
+		name   string
+		change func()
+	}{
+		{"data", func() { r.gh.prs.val = append(slices.Clone(r.gh.prs.val[1:]), gitx.PR{Number: 9999}) }}, // as many rows
+		{"rename", func() { r.cfg.Name = "renamed" }},
+		{"sort", func() { m.sorts[viewPRs] = 1 }}, // status, which reads the login
+		{"login", func() { m.me.val.Login = "someone-else" }},
+		{"scope", func() { m.repo = 2 }},
+		{"filter", func() { m.filters[viewPRs] = "zzz" }},
+	} {
+		before := m.prList()
+		c.change()
+		if got, want := m.prList(), m.buildPRs(); !slices.EqualFunc(got, want, func(a, b gitx.PR) bool { return a.Repo == b.Repo && a.Number == b.Number }) {
+			t.Errorf("%s: a kept list of %d rows (%d before) should be rebuilt as %d rows", c.name, len(got), len(before), len(want))
+		}
+	}
+}
+
 func TestPRStatusRank(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	m.me.val.Login = "me"

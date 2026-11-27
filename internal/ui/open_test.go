@@ -36,7 +36,9 @@ func TestOpenPullRequestInBrowser(t *testing.T) {
 		t.Fatal("the preview should offer o on pull requests")
 	}
 
-	m.repos[0].gh.prs.val[0].URL = "file:///etc/passwd"
+	prs := slices.Clone(m.repos[0].gh.prs.val) // as a load does, store a new list rather than edit the old one
+	prs[0].URL = "file:///etc/passwd"
+	m.repos[0].gh.prs.val = prs
 	for i, p := range m.prList() {
 		if p.URL == "file:///etc/passwd" {
 			m.cursor[viewPRs] = i

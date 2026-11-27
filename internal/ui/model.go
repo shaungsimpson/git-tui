@@ -147,6 +147,11 @@ type Model struct {
 	settleGen  int // the newest key's; an older settledMsg is dropped
 	flash      string
 
+	prMemo struct {
+		key  string // prList's inputs; empty when it must rebuild
+		list []gitx.PR
+	}
+
 	polling  bool          // a Deploys reload tick is scheduled
 	pollWait time.Duration // how far apart those ticks are now
 	pollGen  int           // bumped on view change so an old tick is ignored
@@ -201,6 +206,7 @@ func (m *Model) setTheme(dark bool) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.prMemo.key = "" // a filter's time terms move with the clock
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
