@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,6 +184,13 @@ func TestAvatarRedirectsStayOnHost(t *testing.T) {
 	attachment := []*http.Request{req("https://github.com/user-attachments/assets/a")}
 	if err := checkRedirect(req("https://github-production-user-asset-6210df.s3.amazonaws.com/a"), attachment); err != nil {
 		t.Fatalf("attachments still follow GitHub to its storage: %v", err)
+	}
+	// Go keeps the login token on a same-host redirect whatever the scheme, so only this check stops it going out in clear.
+	if checkRedirect(req("http://github.com/x"), attachment) == nil {
+		t.Fatal("a redirect to http must be refused")
+	}
+	if checkRedirect(req("https://github.com/x"), slices.Repeat(attachment, 5)) == nil {
+		t.Fatal("a sixth redirect must be refused")
 	}
 }
 
