@@ -38,9 +38,9 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
    git tag -a "$v" -F /tmp/tag.txt && git push origin "$v"
    ```
 
-   A pushed tag is never moved or rewritten: Go's module cache and checksum database remember the commit each version points to. v0.15.0 and earlier keep their old messages.
+   A pushed tag is never moved or rewritten: Go's module cache and checksum database remember the commit each version points to.
 
-4. **Write the notes** in a file outside the clone, such as `/tmp/notes.md`, in the same shape as earlier releases (see [v0.4.1](https://github.com/shaungsimpson/git-tui/releases/tag/v0.4.1)): **New**, **Changes**, **Fixes**, **Notes** for anything users should know (such as extra `gh` calls), **Install or upgrade**, and the full changelog link. Leave out sections with nothing in them. Then publish the GitHub Release:
+4. **Write the notes** in a file outside the clone, such as `/tmp/notes.md`, in this shape: **New**, **Changes**, **Fixes**, **Notes** for anything users should know (such as extra `gh` calls), **Install or upgrade**, and the full changelog link. Leave out sections with nothing in them. Then publish the GitHub Release:
 
    ```sh
    gh release create "$v" --title "$v" --notes-file /tmp/notes.md --latest --verify-tag
@@ -51,7 +51,7 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
 5. **Check it installs** like a user would, from outside the clone. The check prints `installed` only when the `git-tui` first on your PATH is the new version:
 
    ```sh
-   GOPRIVATE=github.com/acme go install "github.com/shaungsimpson/git-tui/cmd/git-tui@$v" &&
+   GOPRIVATE=github.com/shaungsimpson/git-tui go install "github.com/shaungsimpson/git-tui/cmd/git-tui@$v" &&
    test "$(git-tui -version)" = "git-tui $v" && echo installed
    ```
 

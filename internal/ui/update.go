@@ -58,7 +58,7 @@ func releaseLines(b update.Build, exe string, l update.Latest, st update.State, 
 		lines = append(lines, "The last check failed: "+clean(err.Error()))
 	}
 	lines = append(lines, "")
-	install := "GOPRIVATE=github.com/acme go install " + update.Module + "/cmd/git-tui@" + l.Version
+	install := "GOPRIVATE=" + update.Module + " go install " + update.Module + "/cmd/git-tui@" + l.Version
 	rebuild := "in the checkout, run mise run update on main, or check out the commit you want and run mise run install-cli (or go install ./cmd/git-tui)."
 	switch {
 	case st == update.Available:
