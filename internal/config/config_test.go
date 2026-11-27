@@ -85,6 +85,19 @@ func TestLoadTidiesPaths(t *testing.T) {
 	}
 }
 
+func TestLoadReadsRelativePathsFromTheFilesFolder(t *testing.T) {
+	cfgPath := write(t, `{"repositories":[{"path":"Code/api"}]}`)
+	repo := filepath.Join(filepath.Dir(cfgPath), "Code", "api")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	cfg, err := Load(cfgPath)
+	if err != nil || cfg.Repositories[0].Status != StatusOK || cfg.Repositories[0].Path != repo {
+		t.Fatalf("a relative path should be read from the configuration file's folder: %+v, %v", cfg, err)
+	}
+}
+
 func TestExpandTilde(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	if got := expand("~/Code/x"); got != filepath.Join(home, "Code/x") {
