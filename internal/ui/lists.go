@@ -375,6 +375,10 @@ func (m *Model) rowKeys(v viewID) []string {
 		for _, c := range m.repoCommits() {
 			keys = append(keys, c.Repo+"/"+c.Hash)
 		}
+	case viewTags:
+		for _, t := range m.tagList() {
+			keys = append(keys, t.Name)
+		}
 	case viewEnvs: // the open commit list keeps its own cursor, so this one always tracks environment rows
 		for _, e := range m.envList() {
 			keys = append(keys, e.Repo+"/"+e.Environment)
