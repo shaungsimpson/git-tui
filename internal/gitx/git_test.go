@@ -245,7 +245,10 @@ func TestRepositoryConfigCannotRunFsmonitor(t *testing.T) {
 	}
 	git := func(args ...string) {
 		cmd := exec.Command("git", args...)
-		cmd.Dir, cmd.Env = dir, append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		// Not gitEnv, whose fsmonitor override this setup must not have, but without its GIT_ variables too: an
+		// inherited GIT_DIR, as git rebase --exec sets, would point git config at another repository.
+		env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "GIT_") })
+		cmd.Dir, cmd.Env = dir, append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
