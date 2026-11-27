@@ -270,3 +270,17 @@ func TestTimeFilterOnEveryDatedList(t *testing.T) {
 		t.Fatal("is:review >1m should keep the demo's review requests")
 	}
 }
+
+// Checking out a branch with no upstream leaves the last incoming load behind; it must not be listed as incoming.
+func TestIncomingNeedsAnUpstream(t *testing.T) {
+	m := setup(t, demoOpts(), 120, 30)
+	press(m, "shift+tab", "j", "tab", "g", "r") // backend, 3 behind its upstream
+	r := m.selected()
+	if m.incomingRows() == 0 {
+		t.Fatal("demo backend should have incoming commits")
+	}
+	r.summary.val.HasAB, r.summary.val.Upstream = false, ""
+	if n := m.incomingRows(); n != 0 || len(m.repoCommits()) != len(r.log.val) {
+		t.Fatalf("a branch without an upstream still lists %d incoming commits", n)
+	}
+}
