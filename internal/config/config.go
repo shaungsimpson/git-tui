@@ -98,6 +98,10 @@ func Load(path string) (Config, error) {
 		r := &cfg.Repositories[i]
 		r.Group = strings.TrimSpace(r.Group) // as saving does, so "work " written by hand is not a second work
 		named := r.Name != ""
+		// A relative path is read from the file's own folder, not wherever git-tui was started.
+		if r.Path = expand(strings.TrimSpace(r.Path)); r.Path != "" && !filepath.IsAbs(r.Path) {
+			r.Path = filepath.Join(filepath.Dir(path), r.Path)
+		}
 		validate(r)
 		// Two repositories called api, named or not: as when adding, the later one gets parent folders until it
 		// is unique, since the app finds a repository by its name.

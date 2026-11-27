@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"image"
 	"image/color"
 	_ "image/gif" // decoders for the formats GitHub screenshots use
@@ -44,7 +45,6 @@ func Supported(getenv func(string) string) bool {
 type Link struct{ Alt, URL string }
 
 var linkRE = regexp.MustCompile(`!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>`)
-var altRE = regexp.MustCompile(`\balt\s*=\s*["']([^"']*)["']`)
 
 // Links finds the pictures in one line of a Markdown body.
 func Links(line string) []Link {
@@ -54,13 +54,19 @@ func Links(line string) []Link {
 			links = append(links, Link{Alt: m[1], URL: m[2]})
 			continue
 		}
-		alt := ""
-		if a := altRE.FindStringSubmatch(m[0]); a != nil {
-			alt = a[1]
-		}
-		links = append(links, Link{Alt: alt, URL: m[3]})
+		links = append(links, Link{Alt: Attr(m[0], "alt"), URL: Attr(m[0], "src")})
 	}
 	return links
+}
+
+// Attr is an HTML tag's attribute value with its entities decoded, or empty. The raw and formatted views both
+// read <img> tags with it, so they agree on which picture a tag names.
+func Attr(tag, name string) string {
+	m := regexp.MustCompile(`(?i)\b` + name + `\s*=\s*["']([^"']*)["']`).FindStringSubmatch(tag)
+	if m == nil {
+		return ""
+	}
+	return html.UnescapeString(m[1])
 }
 
 // Allowed reports whether raw is a GitHub-hosted picture or avatar. No other host is ever contacted, so a PR body
@@ -163,8 +169,39 @@ func Decode(data []byte) (image.Image, error) {
 	return img, err
 }
 
-// EncodeImage encodes a decoded image as a picture with the given terminal image ID.
+// maxSide is the most pixels a picture keeps on either side once sent: the terminal holds every picture decoded
+// until exit, and evicts old ones past its quota, so full-size screenshots would soon leave blank areas.
+// shortcut: assumes pictures at most 80 cells wide (picCols in ui) and 40 rows tall, with cells at most 20 pixels
+// wide and 40 high; raise it if pictures look soft on a denser screen.
+const maxSide = 1600
+
+// shrink scales img down to fit maxSide by averaging each block of pixels, keeping its shape; never up.
+func shrink(img image.Image) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxSide && h <= maxSide {
+		return img
+	}
+	nw, nh := max(1, w*maxSide/max(w, h)), max(1, h*maxSide/max(w, h))
+	out := image.NewRGBA64(image.Rect(0, 0, nw, nh))
+	for y := range nh {
+		for x := range nw {
+			var r, g, bl, a, n uint64
+			for sy := b.Min.Y + y*h/nh; sy < b.Min.Y+(y+1)*h/nh; sy++ {
+				for sx := b.Min.X + x*w/nw; sx < b.Min.X+(x+1)*w/nw; sx++ {
+					cr, cg, cb, ca := img.At(sx, sy).RGBA()
+					r, g, bl, a, n = r+uint64(cr), g+uint64(cg), bl+uint64(cb), a+uint64(ca), n+1
+				}
+			}
+			out.SetRGBA64(x, y, color.RGBA64{R: uint16(r / n), G: uint16(g / n), B: uint16(bl / n), A: uint16(a / n)})
+		}
+	}
+	return out
+}
+
+// EncodeImage encodes a decoded image, shrunk to fit maxSide, as a picture with the given terminal image ID.
 func EncodeImage(img image.Image, id int) (Picture, error) {
+	img = shrink(img)
 	var b bytes.Buffer
 	err := kitty.EncodeGraphics(&b, img, &kitty.Options{
 		Action: kitty.Transmit, Format: kitty.PNG, Transmission: kitty.Direct, ID: id, Quiet: 2, Chunk: true,

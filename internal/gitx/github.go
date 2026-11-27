@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shaungsimpson/git-tui/internal/termimg"
@@ -76,19 +77,11 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	// GitHub search counts team requests too; a request is cleared once the viewer reviews.
-	// Newest first, like the list below, so every listed PR that is requested falls inside the limit.
-	mine := background(func() (string, error) {
-		return command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
-			"--search", "review-requested:@me sort:created-desc", "--json", "number")
-	})
+	mine := background(func() (string, error) { return reviewRequests(ctx, dir) })
 	owner, name, _ := strings.Cut(slug, "/")
-	counts := background(func() (string, error) {
-		return command(ctx, dir, ghListTimeout, "gh", "api", "graphql", "--paginate", "-f", "owner="+owner, "-f", "name="+name,
-			"-f", "query="+countQuery, "--jq", ".data.repository.pullRequests.nodes[]")
-	})
+	counts := background(func() (string, error) { return commentCounts(ctx, dir, owner, name) })
 	// shortcut: only the 300 most recently created open PRs per repository; raise it if a repository has more.
-	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", "300",
+	out, err := command(ctx, dir, ghListTimeout, "gh", "pr", "list", "--repo", slug, "--state", "open", "--limit", strconv.Itoa(prLimit),
 		"--json", "number,title,author,headRefName,baseRefName,isCrossRepository,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,createdAt,body,files")
 	if err != nil {
 		return nil, err
@@ -99,7 +92,7 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	}
 	// shortcut: a failed request search only hides the stars until the next refresh; show the error if that confuses.
 	if mine, err := mine(); err == nil {
-		_ = MarkRequested(prs, mine)
+		_ = MarkRequested(prs, slug, mine)
 	}
 	// shortcut: a failed count only hides the comment marks until the next refresh, as for the stars.
 	if counts, err := counts(); err == nil {
@@ -108,10 +101,48 @@ func (g Git) PullRequests(ctx context.Context, repo, dir string) ([]PR, error) {
 	return prs, nil
 }
 
+// prLimit is how many open PRs a repository's list shows.
+const prLimit = 300
+
+// commentCounts returns countQuery's PR nodes, one JSON value each, for the PRs the list shows and no more, so a
+// repository with many more open PRs neither waits on pages nobody sees nor runs out of time.
+func commentCounts(ctx context.Context, dir, owner, name string) (string, error) {
+	var nodes strings.Builder
+	var after []string
+	for range prLimit / 50 { // countQuery's page size
+		args := append([]string{"api", "graphql", "-f", "owner=" + owner, "-f", "name=" + name, "-f", "query=" + countQuery},
+			after...)
+		out, err := command(ctx, dir, ghTimeout, "gh", append(args, "--jq", ".data.repository.pullRequests")...)
+		if err != nil {
+			return "", err
+		}
+		var page struct {
+			PageInfo struct {
+				HasNextPage bool
+				EndCursor   string
+			}
+			Nodes []json.RawMessage
+		}
+		if err := json.Unmarshal([]byte(out), &page); err != nil {
+			return "", fmt.Errorf("parse gh output: %w", err)
+		}
+		for _, n := range page.Nodes {
+			nodes.Write(n)
+			nodes.WriteByte('\n')
+		}
+		if !page.PageInfo.HasNextPage {
+			break
+		}
+		after = []string{"-f", "endCursor=" + page.PageInfo.EndCursor}
+	}
+	return nodes.String(), nil
+}
+
 // countQuery reads each open PR's comment count and newest comment, and its reviews, which GitHub cannot count
-// without the empty ones. shortcut: the newest 100 reviews per PR; page them if a PR collects more.
+// without the empty ones; newest first, like the list. shortcut: the newest 100 reviews per PR; page them if a PR
+// collects more.
 const countQuery = `query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){` +
-	`pullRequests(states:OPEN,first:50,after:$endCursor){pageInfo{hasNextPage endCursor}nodes{number ` +
+	`pullRequests(states:OPEN,first:50,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number ` +
 	`comments(last:1){totalCount nodes{author{login}createdAt}}reviews(last:100){nodes{author{login}body submittedAt}}}}}}`
 
 // MarkComments sets each PR's comment count and newest commenter from the PR nodes, one JSON value each, that
@@ -230,13 +261,67 @@ func ParseComments(out string) ([]Comment, error) {
 	return cs, nil
 }
 
-// MarkRequested sets ForMe on the PRs listed in `gh pr list --json number` output.
-func MarkRequested(prs []PR, out string) error {
-	var raw []struct{ Number int }
+// requests is the review-request search every repository's PR load shares, so a refresh of many repositories
+// makes one search instead of one each, which would soon reach GitHub's search rate limit.
+var requests struct {
+	sync.Mutex
+	done chan struct{} // closed when the newest search finishes
+	at   time.Time     // when it started; zero after a failure, so the next load searches again
+	out  string
+	err  error
+}
+
+// requestsReuse covers one refresh round, whose loads start within moments of each other, and stays well under
+// the minute after which PRs are stale, so the next round asks GitHub afresh.
+const requestsReuse = 10 * time.Second
+
+// reviewRequests returns `gh search prs --json number,repository` output for the open PRs that request the
+// viewer's review, joining a search in flight or one that started within requestsReuse.
+func reviewRequests(ctx context.Context, dir string) (string, error) {
+	requests.Lock()
+	if requests.done == nil || time.Since(requests.at) >= requestsReuse {
+		done := make(chan struct{})
+		requests.done, requests.at = done, time.Now()
+		go func() {
+			// Not cancelled with the load that started it, since others may be waiting; the timeout still bounds it.
+			// GitHub search counts team requests too; a request is cleared once the viewer reviews.
+			// shortcut: the first 1000 requests, GitHub search's limit; nobody has more open at once.
+			out, err := command(context.WithoutCancel(ctx), dir, ghListTimeout, "gh", "search", "prs",
+				"--review-requested=@me", "--state=open", "--limit", "1000", "--json", "number,repository")
+			requests.Lock()
+			requests.out, requests.err = out, err
+			if err != nil {
+				requests.at = time.Time{}
+			}
+			requests.Unlock()
+			close(done)
+		}()
+	}
+	done := requests.done
+	requests.Unlock()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	requests.Lock()
+	defer requests.Unlock()
+	return requests.out, requests.err
+}
+
+// MarkRequested sets ForMe on the PRs of repository slug listed in `gh search prs --json number,repository` output.
+func MarkRequested(prs []PR, slug, out string) error {
+	var raw []struct {
+		Number     int
+		Repository struct{ NameWithOwner string }
+	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
 		return fmt.Errorf("parse gh output: %w", err)
 	}
 	for _, r := range raw {
+		if !strings.EqualFold(r.Repository.NameWithOwner, slug) { // a remote URL may differ in case from GitHub's
+			continue
+		}
 		for i := range prs {
 			if prs[i].Number == r.Number {
 				prs[i].ForMe = true

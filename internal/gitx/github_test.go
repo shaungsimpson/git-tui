@@ -3,6 +3,9 @@ package gitx
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -81,14 +84,121 @@ func TestParsePRsCheckRollup(t *testing.T) {
 
 func TestMarkRequested(t *testing.T) {
 	prs := []PR{{Number: 1}, {Number: 2}, {Number: 3}}
-	if err := MarkRequested(prs, `[{"number":3},{"number":9}]`); err != nil {
+	out := `[{"number":3,"repository":{"nameWithOwner":"Acme/One"}},{"number":9,"repository":{"nameWithOwner":"acme/one"}},` +
+		`{"number":1,"repository":{"nameWithOwner":"acme/other"}}]`
+	if err := MarkRequested(prs, "acme/one", out); err != nil {
 		t.Fatal(err)
 	}
 	if prs[0].ForMe || prs[1].ForMe || !prs[2].ForMe {
-		t.Fatalf("only #3 is requested: %+v", prs)
+		t.Fatalf("only #3 of acme/one is requested: %+v", prs)
 	}
-	if MarkRequested(prs, "not json") == nil {
+	if MarkRequested(prs, "acme/one", "not json") == nil {
 		t.Fatal("non-JSON output must be an error")
+	}
+}
+
+// fakeGH puts a gh first on PATH that runs script (sh, arguments in "$@") after logging each call's arguments,
+// one per line and then "--"; it returns the log's path.
+func fakeGH(t *testing.T, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "log")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" -- >> '" + log + "'\n" + script + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+// ghCalls is the argument lists fakeGH logged.
+func ghCalls(t *testing.T, log string) [][]string {
+	t.Helper()
+	b, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	for c := range strings.SplitSeq(strings.TrimSuffix(string(b), "--\n"), "--\n") {
+		calls = append(calls, strings.Split(strings.TrimSuffix(c, "\n"), "\n"))
+	}
+	return calls
+}
+
+// originRepo is an empty repository whose origin is github.com/slug.
+func originRepo(t *testing.T, slug string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "https://github.com/" + slug}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = dir, append(gitEnv(cmd.Environ()), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+func TestCommentCountsStopAtTheListedPRs(t *testing.T) {
+	// Every page says there is another; page n holds PR #n with n comments, and its cursor is "c<n>".
+	log := fakeGH(t, `case "$1 $2" in
+"api graphql")
+  n=0
+  for a in "$@"; do case "$a" in endCursor=c*) n=${a#endCursor=c} ;; esac; done
+  n=$((n+1))
+  echo '{"pageInfo":{"hasNextPage":true,"endCursor":"c'$n'"},"nodes":[{"number":'$n',"comments":{"totalCount":'$n',"nodes":[]},"reviews":{"nodes":[]}}]}' ;;
+"pr list") echo '[{"number":1},{"number":6},{"number":7}]' ;;
+*) echo '[]' ;;
+esac`)
+	prs, err := Git{}.PullRequests(context.Background(), "r", originRepo(t, "acme/r"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := 0
+	for _, c := range ghCalls(t, log) {
+		if slices.Contains(c, "graphql") {
+			pages++
+		}
+	}
+	if pages != prLimit/50 {
+		t.Fatalf("read %d pages of counts, want the %d that cover the listed PRs", pages, prLimit/50)
+	}
+	if prs[0].Comments != 1 || prs[1].Comments != 6 || prs[2].Comments != 0 {
+		t.Fatalf("want counts 1, 6 and none past the last page: %+v", prs)
+	}
+}
+
+func TestPullRequestsShareOneReviewSearch(t *testing.T) {
+	requests.Lock()
+	requests.done = nil // a search an earlier test run made
+	requests.Unlock()
+	log := fakeGH(t, `case "$1 $2" in
+"search prs") echo '[{"number":2,"repository":{"nameWithOwner":"Acme/One"}},{"number":1,"repository":{"nameWithOwner":"acme/two"}}]' ;;
+"pr list") echo '[{"number":1},{"number":2}]' ;;
+esac`)
+	ctx, g := context.Background(), Git{}
+	one, err := g.PullRequests(ctx, "one", originRepo(t, "acme/one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := g.PullRequests(ctx, "two", originRepo(t, "acme/two"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	searches := 0
+	for _, c := range ghCalls(t, log) {
+		if slices.ContainsFunc(c, func(a string) bool { return strings.Contains(a, "review-requested") }) {
+			searches++
+		}
+	}
+	if searches != 1 {
+		t.Fatalf("two repositories' loads made %d review-request searches, want 1", searches)
+	}
+	if one[0].ForMe || !one[1].ForMe || !two[0].ForMe || two[1].ForMe {
+		t.Fatalf("want one#2 and two#1 requested: %+v %+v", one, two)
 	}
 }
 

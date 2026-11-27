@@ -143,9 +143,15 @@ type Model struct {
 	helpOff    int // how far help is scrolled
 	pendingG   bool
 	seqGen     int
-	footerMemo int // footerRows while a frame renders; 0 outside one
-	settleGen  int // the newest key's; an older settledMsg is dropped
+	footerMemo int  // footerRows while a frame renders; 0 outside one
+	settleGen  int  // the newest key's; an older settledMsg is dropped
+	forceLoad  bool // Ctrl+R was pressed: the next settle reloads even fresh data
 	flash      string
+
+	prMemo struct {
+		key  string // prList's inputs; empty when it must rebuild
+		list []gitx.PR
+	}
 
 	polling  bool          // a Deploys reload tick is scheduled
 	pollWait time.Duration // how far apart those ticks are now
@@ -201,6 +207,7 @@ func (m *Model) setTheme(dark bool) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.prMemo.key = "" // a filter's time terms move with the clock
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -226,7 +233,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.touch(), debounce(&m.settleGen, settleAfter, func(gen int) tea.Msg { return settledMsg{gen} }))
 	case settledMsg:
 		if msg.gen == m.settleGen {
-			return m, tea.Batch(m.ensure(false), m.ensurePics())
+			force := m.forceLoad
+			m.forceLoad = false
+			return m, tea.Batch(m.ensurePics(), m.ensure(force)) // pictures first only for tests, whose drain runs a batch in order
 		}
 	case tea.FocusMsg:
 		m.focused = true
@@ -526,7 +535,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 		return debounce(&m.seqGen, seqTimeout, func(gen int) tea.Msg { return seqExpiredMsg{gen} })
 	case actRefresh:
 		m.flash = "Refreshing " + viewNames[m.view]
-		// Failed pictures retry too: ensurePics below fetches them again, and the viewer reload the avatar.
+		// Failed pictures retry too: ensurePics fetches them again once keys settle, and the viewer reload the avatar.
 		for url, st := range m.pics {
 			if st.err != nil {
 				delete(m.pics, url)
@@ -535,7 +544,7 @@ func (m *Model) do(id actionID) tea.Cmd {
 		if m.avatar.err != nil {
 			m.avatar.url = ""
 		}
-		return tea.Batch(m.ensurePics(), m.ensure(true)) // pictures first only for tests, whose drain runs a batch in order
+		m.forceLoad = true // once keys settle, so a held Ctrl+R reloads once rather than on every repeat
 	case actAdd:
 		return m.openScan(-1)
 	case actFix:

@@ -114,6 +114,7 @@ func (m *Model) render() string {
 	if m.width == 0 {
 		return ""
 	}
+	m.prMemo.key = ""
 	m.footerMemo = m.footerRows() // it asks every shortcut whether it applies, and a frame needs it often
 	defer func() { m.footerMemo = 0 }()
 	l := m.layout()

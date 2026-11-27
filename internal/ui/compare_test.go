@@ -53,6 +53,10 @@ func TestEnvironmentPendingCommits(t *testing.T) {
 	if cmd := m.openPending(envRow{0, gitx.Deployment{Repo: "backend", Environment: "old", Latest: "FAILURE"}}); cmd != nil || m.cmp.open {
 		t.Fatal("an environment without a deployed commit must not open")
 	}
+	// A short or abbreviated hash is not a commit ID: it must not open, or reach git or the title's [:7].
+	if cmd := m.openPending(envRow{0, gitx.Deployment{Repo: "backend", Environment: "short", Commit: "abc"}}); cmd != nil || m.cmp.open {
+		t.Fatal("an environment with a short hash must not open")
+	}
 }
 
 func TestDiffView(t *testing.T) {

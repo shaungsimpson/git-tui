@@ -183,9 +183,14 @@ func TestLeavingAPageCancelsItsPictures(t *testing.T) {
 
 	m.inspect = false
 	m.ensurePics() // as the next settled key does
-	for range batch {
+	var late tea.Msg
+	for i := range batch {
 		select {
 		case msg := <-msgs:
+			if i == len(batch)-1 {
+				late = msg // held back until the page is open again
+				break
+			}
 			m.Update(msg) // late answers to cancelled loads
 		case <-time.After(time.Second):
 			t.Fatal("leaving the page should cancel its picture downloads")
@@ -197,5 +202,10 @@ func TestLeavingAPageCancelsItsPictures(t *testing.T) {
 	m.inspect = true
 	if batch, _ := m.ensurePics()().(tea.BatchMsg); len(batch) != 3 {
 		t.Fatalf("coming back should load the pictures again, got %d loads", len(batch))
+	}
+	m.Update(late) // the cancelled load's answer, arriving after its picture started loading again
+	st := m.pics[late.(picMsg).url]
+	if st == nil || !st.loading || st.err != nil {
+		t.Fatalf("a cancelled load's answer should not land on the new load: %+v", st)
 	}
 }

@@ -95,6 +95,11 @@ func TestMarkdownBotAndEdgeHTML(t *testing.T) {
 		!slices.Contains(linkTargets(out), "https://g.example/x") {
 		t.Errorf("open sections should show their contents, links kept:\n%s", plain)
 	}
+	nested := "<details><summary>A</summary><details><summary>B</summary>inner</details>tail of A</details>after"
+	if plain, _ := draw(nested, false); !strings.Contains(plain, "▸ A") || strings.Contains(plain, "tail of A") || strings.Contains(plain, "inner") ||
+		!strings.Contains(plain, "after") {
+		t.Errorf("a closed section should hide everything up to its own </details>, nested ones included:\n%s", plain)
+	}
 	for _, body := range []string{
 		"<details><summary>Shots</summary>\n\nhidden text </details>\n\nVisible after.",          // closed within a paragraph
 		"<details>\n<summary>Shots</summary>\n\n- hidden item\n\n  </details>\n\nVisible after.", // closed within a list item

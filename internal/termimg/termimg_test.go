@@ -6,9 +6,11 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"image"
+	"image/color"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +23,10 @@ func TestLinks(t *testing.T) {
 	if len(got) != 2 || got[0] != (Link{"before", "https://github.com/user-attachments/assets/aaa"}) ||
 		got[1] != (Link{"after", "https://github.com/user-attachments/assets/bbb"}) {
 		t.Fatalf("%+v", got)
+	}
+	escaped := Links(`<img src="https://raw.githubusercontent.com/o/r/main/a.png?x=1&amp;y=2" alt="a &amp; b">`)
+	if len(escaped) != 1 || escaped[0] != (Link{"a & b", "https://raw.githubusercontent.com/o/r/main/a.png?x=1&y=2"}) {
+		t.Fatalf("an <img> tag's entities should be decoded, as the formatted view does: %+v", escaped)
 	}
 	if len(Links("no pictures [here](https://x)")) != 0 {
 		t.Fatal("a plain link is not a picture")
@@ -149,6 +155,25 @@ func TestEncodeAndLines(t *testing.T) {
 	}
 }
 
+func TestEncodeShrinksLargePictures(t *testing.T) {
+	big := image.NewRGBA(image.Rect(0, 0, 4000, 1000))
+	big.Set(0, 0, color.White)
+	p, err := EncodeImage(big, 1)
+	if err != nil || p.Width != maxSide || p.Height != maxSide/4 {
+		t.Fatalf("a large picture should be sent no bigger than %d pixels, keeping its shape: %dx%d, %v", maxSide, p.Width, p.Height, err)
+	}
+	if s := shrink(big); s.At(0, 0) == (color.RGBA64{}) || s.At(1, 0) != (color.RGBA64{}) {
+		t.Fatal("each pixel should average its own block of the original")
+	}
+	if p, _ := EncodeImage(image.NewRGBA(image.Rect(0, 0, 300, 2000)), 1); p.Width != 240 || p.Height != maxSide {
+		t.Fatalf("a tall picture should be capped by its height: %dx%d", p.Width, p.Height)
+	}
+	small := image.NewRGBA(image.Rect(0, 0, 100, 50))
+	if shrink(small) != image.Image(small) {
+		t.Fatal("a small picture should be sent as it is, never scaled up")
+	}
+}
+
 func TestSupported(t *testing.T) {
 	env := func(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
 	if !Supported(env(map[string]string{"TERM_PROGRAM": "ghostty"})) {
@@ -183,6 +208,13 @@ func TestAvatarRedirectsStayOnHost(t *testing.T) {
 	attachment := []*http.Request{req("https://github.com/user-attachments/assets/a")}
 	if err := checkRedirect(req("https://github-production-user-asset-6210df.s3.amazonaws.com/a"), attachment); err != nil {
 		t.Fatalf("attachments still follow GitHub to its storage: %v", err)
+	}
+	// Go keeps the login token on a same-host redirect whatever the scheme, so only this check stops it going out in clear.
+	if checkRedirect(req("http://github.com/x"), attachment) == nil {
+		t.Fatal("a redirect to http must be refused")
+	}
+	if checkRedirect(req("https://github.com/x"), slices.Repeat(attachment, 5)) == nil {
+		t.Fatal("a sixth redirect must be refused")
 	}
 }
 

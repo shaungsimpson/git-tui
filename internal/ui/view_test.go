@@ -428,6 +428,39 @@ func BenchmarkManyRepos(b *testing.B) {
 	})
 }
 
+// BenchmarkManyPRs measures a key press, and a load result, each with its frame, for 30 repositories of 100
+// pull requests each. Every shortcut the footer offers asks for the selected pull request, so this is where
+// rebuilding the list per question shows.
+func BenchmarkManyPRs(b *testing.B) {
+	o := Options{Source: gitx.Demo{}, Demo: true}
+	for i := range 30 {
+		name := "r" + strconv.Itoa(i)
+		o.Repos = append(o.Repos, config.Repo{Name: name, Path: "/demo/" + name, Status: config.StatusOK})
+	}
+	m := New(o)
+	m.width, m.height, m.view = 160, 50, viewPRs
+	now := time.Now()
+	for i, r := range m.repos {
+		var ps []gitx.PR
+		for j := range 100 {
+			ps = append(ps, gitx.PR{Number: i*1000 + j, Title: "title", Author: "me", Branch: "b" + strconv.Itoa(j), Base: "main", Updated: now.Add(-time.Duration(j) * time.Minute)})
+		}
+		r.gh.prs = slot[[]gitx.PR]{val: ps, loaded: true, at: now}
+	}
+	b.Run("key", func(b *testing.B) {
+		for b.Loop() {
+			m.Update(keyMsg("j"))
+			_ = m.render()
+		}
+	})
+	b.Run("result", func(b *testing.B) {
+		for b.Loop() {
+			m.Update(resultMsg{kind: kindPRs, gen: -1}) // a superseded result: only the bookkeeping and clamping run
+			_ = m.render()
+		}
+	})
+}
+
 func TestSelectedRowKeepsColours(t *testing.T) {
 	m := setup(t, demoOpts(), 120, 30)
 	segs := []seg{{"0a1b2c3  ", m.st.id}, {"Fix rounding", m.st.text}}

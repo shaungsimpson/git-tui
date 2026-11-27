@@ -38,7 +38,6 @@ var mdParser = goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
 var (
 	commentRE    = regexp.MustCompile(`(?s)<!--.*?-->`)
 	summaryRE    = regexp.MustCompile(`(?is)<summary[^>]*>(.*?)</summary>`)
-	detailsRE    = regexp.MustCompile(`(?is)<details[^>]*>(.*?)</details>`)
 	detailsTagRE = regexp.MustCompile(`(?i)</?details\b`)
 	anchorRE     = regexp.MustCompile(`(?is)<a\b([^>]*)>(.*?)</a>`)
 	imgRE        = regexp.MustCompile(`(?i)<img\b[^>]*>`)
@@ -46,15 +45,6 @@ var (
 	brRE         = regexp.MustCompile(`(?i)<br\s*/?>`)
 	alertRE      = regexp.MustCompile(`^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$`)
 )
-
-// attr is an HTML tag's attribute value, or empty.
-func attr(tag, name string) string {
-	m := regexp.MustCompile(`(?i)\b` + name + `\s*=\s*["']([^"']*)["']`).FindStringSubmatch(tag)
-	if m == nil {
-		return ""
-	}
-	return html.UnescapeString(m[1])
-}
 
 // descLines is a PR's description as the detail page draws it, formatted or raw, and how many lines are left out.
 func (m *Model) descLines(p gitx.PR) ([]mdLine, int) { return m.mdLines(p.Body, m.openFor == p.URL) }
@@ -422,13 +412,13 @@ func (r *mdRender) inline(n ast.Node, st lipgloss.Style, url string, out *[]span
 		case strings.HasPrefix(lower, "<br"):
 			add("\n", st, "")
 		case strings.HasPrefix(lower, "<img"):
-			s := clean(attr(tag, "alt"))
+			s := clean(termimg.Attr(tag, "alt"))
 			if s == "" {
 				s = "image"
 			}
 			add(s, r.m.st.muted, url)
 		case strings.HasPrefix(lower, "<a "):
-			r.href = target(attr(tag, "href"))
+			r.href = target(termimg.Attr(tag, "href"))
 		case strings.HasPrefix(lower, "</a"):
 			r.href = ""
 		}
@@ -488,7 +478,7 @@ func (r *mdRender) soleImages(line []ast.Node) []termimg.Link {
 			switch {
 			case strings.HasPrefix(tag, "<img"):
 				raw := string(c.Segments.Value(r.src))
-				pics = append(pics, termimg.Link{Alt: attr(raw, "alt"), URL: attr(raw, "src")})
+				pics = append(pics, termimg.Link{Alt: termimg.Attr(raw, "alt"), URL: termimg.Attr(raw, "src")})
 			case !strings.HasPrefix(tag, "<a ") && !strings.HasPrefix(tag, "</a") && !strings.HasPrefix(tag, "<br"):
 				return nil
 			}
@@ -515,11 +505,18 @@ func (r *mdRender) htmlText(h *ast.HTMLBlock) string {
 // lines, shows its summary, and its contents only when open.
 func (r *mdRender) html(raw, first, rest string) {
 	drawn, last := 0, 0
-	for _, loc := range detailsRE.FindAllStringSubmatchIndex(raw, -1) {
+	for _, loc := range detailsTagRE.FindAllStringIndex(raw, -1) {
+		if loc[0] < last || raw[loc[0]+1] == '/' { // inside the section just drawn, or a stray </details>
+			continue
+		}
+		end := closedAt(raw[loc[0]:], 0) // counted, so a nested section's </details> does not end this one
+		if end < 0 {
+			break
+		}
 		drawn = r.htmlLines(raw[last:loc[0]], first, rest, drawn)
-		r.section(raw[loc[2]:loc[3]], r.pick(drawn, first, rest), rest)
+		r.section(raw[loc[0]:loc[0]+end], r.pick(drawn, first, rest), rest)
 		drawn++
-		last = loc[1]
+		last = loc[0] + end
 	}
 	r.htmlLines(raw[last:], first, rest, drawn)
 }
@@ -544,14 +541,14 @@ func (r *mdRender) section(raw, first, rest string) {
 // drawn is how many lines came before, for the prefix. It returns the new count.
 func (r *mdRender) htmlLines(raw, first, rest string, drawn int) int {
 	for _, tag := range imgRE.FindAllString(raw, -1) {
-		r.out = append(r.out, mdLine{pic: &termimg.Link{Alt: attr(tag, "alt"), URL: attr(tag, "src")}})
+		r.out = append(r.out, mdLine{pic: &termimg.Link{Alt: termimg.Attr(tag, "alt"), URL: termimg.Attr(tag, "src")}})
 		drawn++
 	}
 	for _, l := range strings.Split(brRE.ReplaceAllString(raw, "\n"), "\n") {
 		var spans []span
 		last := 0
 		for _, a := range anchorRE.FindAllStringSubmatchIndex(l, -1) {
-			spans = append(spans, span{htmlPlain(l[last:a[0]]), r.m.st.text, ""}, span{htmlPlain(l[a[4]:a[5]]), r.m.st.text, target(attr(l[a[2]:a[3]], "href"))})
+			spans = append(spans, span{htmlPlain(l[last:a[0]]), r.m.st.text, ""}, span{htmlPlain(l[a[4]:a[5]]), r.m.st.text, target(termimg.Attr(l[a[2]:a[3]], "href"))})
 			last = a[1]
 		}
 		spans = append(spans, span{htmlPlain(l[last:]), r.m.st.text, ""})
