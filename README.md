@@ -15,12 +15,12 @@ You need Git, a GitHub account, and Go 1.21 or newer, which fetches the Go versi
    git-tui -version
    ```
 
-   The last line should print the newest release, such as `git-tui v0.3.0`. On the way you may see:
+   The last line should print the newest release, such as `git-tui v1.2.3`. On the way you may see:
 
    ```text
-   go: downloading github.com/shaungsimpson/git-tui v0.3.0
-   go: github.com/shaungsimpson/git-tui@v0.3.0 requires go >= 1.26.0; switching to go1.26.10
-   go: downloading github.com/shaungsimpson/git-tui v0.3.0
+   go: downloading github.com/shaungsimpson/git-tui v1.2.3
+   go: github.com/shaungsimpson/git-tui@v1.2.3 requires go >= 1.26.0; switching to go1.26.10
+   go: downloading github.com/shaungsimpson/git-tui v1.2.3
    ```
 
    That is normal: your Go is older than the 1.26 the app needs, so Go downloads 1.26 once and uses it. The second `downloading` line is the newer Go fetching the module again.
@@ -28,7 +28,7 @@ You need Git, a GitHub account, and Go 1.21 or newer, which fetches the Go versi
    If it fails:
 
    - `command not found: git-tui` after a successful install: add Go's install directory to your `PATH`. `go env GOBIN` prints it; if that is empty, it is `$(go env GOPATH)/bin`, usually `~/go/bin`.
-   - It installs an older version: Go has not seen a release tagged in the last few minutes. Use `@v0.3.0` (or whichever version) instead of `@latest`, or try again shortly.
+   - It installs an older version: Go has not seen a release tagged in the last few minutes. Use `@v1.2.3` (or whichever version) instead of `@latest`, or try again shortly.
 
 2. Look around with made-up data. Nothing is read or sent:
 
@@ -54,12 +54,12 @@ To update later, run the install command again; `git-tui -version` shows what yo
 
 git-tui tells you when a newer stable release exists, and how to install it by hand. It never installs anything or changes your checkout.
 
-- **Which builds are checked.** Go records how a binary was built. A stable version installed with `go install …@v0.5.0` (or `@latest`) is a release, checked against the GitHub Release marked latest about once a day. A build from a clone, even one exactly on a release tag, is a source build. Anything else, such as `go install …@main`, is unknown. Source and unknown builds are never called out of date; `Ctrl+R` in Connections, or `git-tui -check-update`, shows the latest release on demand.
-- **In the app.** When a newer release exists, an **Update v0.5.0** pill joins the badges at the right of the header (`[Update v0.5.0]` in the ASCII and text headers, the tab bar with the header off), so it reads without colour. The `git-tui` row in Connections shows the state (`up to date`, `update available`, `not checked`, `checking`, `check failed` or `not compared`), the version and kind of build, the executable, the latest stable release and how long ago it was checked, then what to do: the `go install` command pinned to the new version for a release; for a source build, how to rebuild it from the clone; for an unknown build, both, since the app cannot tell which applies.
+- **Which builds are checked.** Go records how a binary was built. A stable version installed with `go install …@v1.2.3` (or `@latest`) is a release, checked against the GitHub Release marked latest about once a day. A build from a clone, even one exactly on a release tag, is a source build. Anything else, such as `go install …@main`, is unknown. Source and unknown builds are never called out of date; `Ctrl+R` in Connections, or `git-tui -check-update`, shows the latest release on demand.
+- **In the app.** When a newer release exists, an **Update v1.3.0** pill joins the badges at the right of the header (`[Update v1.3.0]` in the ASCII and text headers, the tab bar with the header off), so it reads without colour. The `git-tui` row in Connections shows the state (`up to date`, `update available`, `not checked`, `checking`, `check failed` or `not compared`), the version and kind of build, the executable, the latest stable release and how long ago it was checked, then what to do: the `go install` command pinned to the new version for a release; for a source build, how to rebuild it from the clone; for an unknown build, both, since the app cannot tell which applies.
 ![Connections with the git-tui row selected: a release one version behind, the latest release and the go install command for it](docs/images/connections.webp)
 
 - **From the command line.** `git-tui -check-update` checks now, whatever the build, prints the same details and exits without starting the interface. It exits 0 when the check worked, whether or not there is a newer release, and 1 when it failed (after printing any earlier result). `-version` never checks.
-- **How it checks.** One `gh api repos/shaungsimpson/git-tui/releases/latest` call (20-second timeout), so it needs `gh` logged in. Only a stable version (`vX.Y.Z`) is accepted. A successful check is cached in `$XDG_CACHE_HOME/git-tui/release.json` (default `~/.cache/git-tui/release.json`) and trusted for 24 hours across launches; a failed check is not cached, keeps the earlier result and its age on screen, and retries like any other load. A missing or unreadable cache only means checking again. Demo mode pretends to run the newest release tag it was built from and finds the next minor release (built after v0.10.0, it runs v0.10.0 and finds v0.11.0), so screenshots taken before a release show the version about to ship. It uses neither the network nor the cache.
+- **How it checks.** One `gh api repos/shaungsimpson/git-tui/releases/latest` call (20-second timeout), so it needs `gh` logged in. Only a stable version (`vX.Y.Z`) is accepted. A successful check is cached in `$XDG_CACHE_HOME/git-tui/release.json` (default `~/.cache/git-tui/release.json`) and trusted for 24 hours across launches; a failed check is not cached, keeps the earlier result and its age on screen, and retries like any other load. A missing or unreadable cache only means checking again. Demo mode pretends to run the newest release tag it was built from and finds the next minor release (built after v1.2.0, it runs v1.2.0 and finds v1.3.0), so screenshots taken before a release show the version about to ship. It uses neither the network nor the cache.
 
 ## Prerequisites
 
@@ -154,7 +154,7 @@ Pull requests by status puts what needs you first: your review requests, then yo
 
 In Pull requests, a green **✔** in the column after the check status marks your own PR that is ready to merge: approved, every check passing, and not a draft. Its detail page says "Ready: ✔ approved, checks passing". Merge conflicts are not checked.
 
-![Tags comparing v1.8.0 with v1.9.0: the commits between them, ](docs/images/compare.webp)
+![Tags comparing v1.8.0 with v1.9.0: the commits between them, newest first, with the selected one in the preview](docs/images/compare.webp)
 
 ![Deploys across all repositories: a running deploy at the top, with successes and failures below](docs/images/deploys.webp)
 
@@ -188,7 +188,7 @@ Press `b` to cycle it (the choice is remembered), or start with `-profile`:
 | `text`  | One line of counts, zeros left out |
 | `off`   | Nothing |
 
-![The profile header in ASCII mode, its badges drawn as [! 3], [ok 2] and [Update v0.11.0]](docs/images/header-ascii.webp)
+![The profile header in ASCII mode, its badges drawn as [! 3], [ok 2] and an [Update] pill](docs/images/header-ascii.webp)
 
 ![The profile header in text mode: one line of counts, with the same badges](docs/images/header-text.webp)
 

@@ -4,10 +4,10 @@ Part of the [development guide](README.md).
 
 A release is a git tag on `main` plus a GitHub Release with notes; there is no version file to bump. Release once the pull requests for it are merged and CI has passed on `main`.
 
-1. **Pick the version** and keep it in a shell variable; the commands below use it. Below 1.0, a new feature bumps the middle number (`v0.4.0` to `v0.5.0`); fixes alone bump the last (`v0.4.1`).
+1. **Pick the version** and keep it in a shell variable; the commands below use it. Below 1.0, a new feature bumps the middle number (`v0.1.0` to `v0.2.0`); fixes alone bump the last (`v0.1.1`).
 
    ```sh
-   v=v0.4.2
+   v=v1.2.3
    ```
 
 2. **Check `main`** is clean, exactly `origin/main`, and green. The commands are chained, so the first failure stops the rest; then confirm the CI run listed for this exact commit passed:
@@ -25,11 +25,11 @@ A release is a git tag on `main` plus a GitHub Release with notes; there is no v
 3. **Tag it and push the tag.** The tag's message is a short summary, so `git tag -n1` reads as a one-line changelog and `git show "$v"` gives the gist offline; the full notes go in the GitHub Release (step 4). Write it in a file outside the clone, such as `/tmp/tag.txt`: the version and a title of a few words, a blank line, then up to three lines on what changed and anything users must know. For example:
 
    ```text
-   v0.15.0: Repository groups
+   v0.1.1: Fixes from a code audit
 
-   - Give a repository a group with e in Connections, or "group" in config.json
-   - ] and [ show one group at a time; hidden repositories make no git or gh calls
-   - Configs using group need v0.15.0 or later
+   - Repeated repository names load apart; open pages stay on their tag and ignore [ and ]
+   - Incoming commits clear without an upstream; NO_COLOR falls back from pictures
+   - MIT licence; installing needs no GOPRIVATE
    ```
 
    Then tag with it and push the tag:
