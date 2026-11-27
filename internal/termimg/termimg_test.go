@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"image"
+	"image/color"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,25 @@ func TestEncodeAndLines(t *testing.T) {
 	}
 	if _, err := Decode([]byte("<svg/>")); err == nil {
 		t.Fatal("SVG is not supported and must say so")
+	}
+}
+
+func TestEncodeShrinksLargePictures(t *testing.T) {
+	big := image.NewRGBA(image.Rect(0, 0, 4000, 1000))
+	big.Set(0, 0, color.White)
+	p, err := EncodeImage(big, 1)
+	if err != nil || p.Width != maxSide || p.Height != maxSide/4 {
+		t.Fatalf("a large picture should be sent no bigger than %d pixels, keeping its shape: %dx%d, %v", maxSide, p.Width, p.Height, err)
+	}
+	if s := shrink(big); s.At(0, 0) == (color.RGBA64{}) || s.At(1, 0) != (color.RGBA64{}) {
+		t.Fatal("each pixel should average its own block of the original")
+	}
+	if p, _ := EncodeImage(image.NewRGBA(image.Rect(0, 0, 300, 2000)), 1); p.Width != 240 || p.Height != maxSide {
+		t.Fatalf("a tall picture should be capped by its height: %dx%d", p.Width, p.Height)
+	}
+	small := image.NewRGBA(image.Rect(0, 0, 100, 50))
+	if shrink(small) != image.Image(small) {
+		t.Fatal("a small picture should be sent as it is, never scaled up")
 	}
 }
 
