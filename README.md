@@ -214,7 +214,7 @@ The footer lists the shortcuts that apply right now. When they do not fit on one
 | `s`               | Sort the current list: Activity, Pull requests, Repository, Environments and Deploys (see [Views](#views)). Remembered between runs |
 | `n`               | Go to Pull requests across all repositories, filtered to your review requests (`is:review`); again for your PRs ready to merge (`is:ready`); again to show every PR |
 | `g` then `o` `a` `p` `r` `t` `e` `d` `c` | Go to Overview, Activity, Pull requests, Repository, Tags, Environments, Deploys or Connections (1 second timeout). Each tab underlines its letter |
-| `Ctrl+R`          | Refresh everything on screen now, including failed loads; in Connections, also check for a newer release |
+| `Ctrl+R`          | Refresh everything on screen now, including failed loads (held down, it refreshes once when let go); in Connections, also check for a newer release |
 | `?`               | Every shortcut, grouped by where it applies                                |
 | `p`               | Show or hide the preview pane (120 columns and wider). Remembered between runs |
 | `F2`              | Toggle the dark and light themes                                           |

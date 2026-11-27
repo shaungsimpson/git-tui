@@ -278,6 +278,36 @@ func TestRunReasonRetriesOnCtrlR(t *testing.T) {
 	}
 }
 
+// Holding Ctrl+R reloads once, when it is let go, rather than cancelling and restarting on every repeat.
+func TestHeldRefreshLoadsOnce(t *testing.T) {
+	src := &countingSource{}
+	o := demoOpts()
+	o.Source = src
+	m := setup(t, o, 140, 40)
+	press(m, "g", "p")
+	settleAfter = time.Hour // keys arrive faster than they settle
+	t.Cleanup(func() { settleAfter = 0 })
+	round := func(presses int) (gens int, prs int32) {
+		g, p := m.gens, src.prs.Load()
+		for range presses {
+			m.Update(keyMsg("ctrl+r"))
+		}
+		if m.gens != g {
+			t.Fatalf("%d Ctrl+R presses started loads before keys settled", presses)
+		}
+		_, cmd := m.Update(settledMsg{m.settleGen})
+		drain(m, cmd)
+		return m.gens - g, src.prs.Load() - p
+	}
+	oneGens, onePRs := round(1)
+	if onePRs != int32(len(gitx.DemoRepos)) {
+		t.Fatalf("a single Ctrl+R should reload each GitHub repository's PRs once, got %d loads", onePRs)
+	}
+	if gens, prs := round(5); gens != oneGens || prs != onePRs {
+		t.Fatalf("a held Ctrl+R started %d loads (%d PR calls), one press %d (%d)", gens, prs, oneGens, onePRs)
+	}
+}
+
 // Holding j through the sidebar loads only the repository it stops on.
 func TestHeldKeysLoadWhereTheyStop(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
