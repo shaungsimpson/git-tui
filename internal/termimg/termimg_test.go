@@ -23,6 +23,10 @@ func TestLinks(t *testing.T) {
 		got[1] != (Link{"after", "https://github.com/user-attachments/assets/bbb"}) {
 		t.Fatalf("%+v", got)
 	}
+	escaped := Links(`<img src="https://raw.githubusercontent.com/o/r/main/a.png?x=1&amp;y=2" alt="a &amp; b">`)
+	if len(escaped) != 1 || escaped[0] != (Link{"a & b", "https://raw.githubusercontent.com/o/r/main/a.png?x=1&y=2"}) {
+		t.Fatalf("an <img> tag's entities should be decoded, as the formatted view does: %+v", escaped)
+	}
 	if len(Links("no pictures [here](https://x)")) != 0 {
 		t.Fatal("a plain link is not a picture")
 	}

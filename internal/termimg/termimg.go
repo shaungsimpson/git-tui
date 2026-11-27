@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"image"
 	"image/color"
 	_ "image/gif" // decoders for the formats GitHub screenshots use
@@ -44,7 +45,6 @@ func Supported(getenv func(string) string) bool {
 type Link struct{ Alt, URL string }
 
 var linkRE = regexp.MustCompile(`!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>`)
-var altRE = regexp.MustCompile(`\balt\s*=\s*["']([^"']*)["']`)
 
 // Links finds the pictures in one line of a Markdown body.
 func Links(line string) []Link {
@@ -54,13 +54,19 @@ func Links(line string) []Link {
 			links = append(links, Link{Alt: m[1], URL: m[2]})
 			continue
 		}
-		alt := ""
-		if a := altRE.FindStringSubmatch(m[0]); a != nil {
-			alt = a[1]
-		}
-		links = append(links, Link{Alt: alt, URL: m[3]})
+		links = append(links, Link{Alt: Attr(m[0], "alt"), URL: Attr(m[0], "src")})
 	}
 	return links
+}
+
+// Attr is an HTML tag's attribute value with its entities decoded, or empty. The raw and formatted views both
+// read <img> tags with it, so they agree on which picture a tag names.
+func Attr(tag, name string) string {
+	m := regexp.MustCompile(`(?i)\b` + name + `\s*=\s*["']([^"']*)["']`).FindStringSubmatch(tag)
+	if m == nil {
+		return ""
+	}
+	return html.UnescapeString(m[1])
 }
 
 // Allowed reports whether raw is a GitHub-hosted picture or avatar. No other host is ever contacted, so a PR body
