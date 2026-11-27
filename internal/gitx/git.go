@@ -186,14 +186,15 @@ func (g Git) Diff(ctx context.Context, repo, dir string) ([]string, error) {
 	// The three reads are independent, so they overlap: in a large worktree each can take seconds.
 	stagedF := background(func() (string, error) { return g.run(ctx, dir, append([]string{"diff", "--cached"}, noTools...)...) })
 	unstagedF := background(func() (string, error) { return g.run(ctx, dir, append([]string{"diff"}, noTools...)...) })
-	untracked, err := g.run(ctx, dir, "ls-files", "--others", "--exclude-standard")
+	// -z: without it git quotes and escapes unusual names, so naïve.txt would show as "na\303\257ve.txt".
+	untracked, err := g.run(ctx, dir, "ls-files", "--others", "--exclude-standard", "-z")
 	staged, serr := stagedF()
 	unstaged, uerr := unstagedF()
 	if err := cmp.Or(serr, uerr, err); err != nil { // the first failure, in the order they are shown
 		return nil, err
 	}
 	var files []string
-	for _, f := range strings.Split(strings.TrimSpace(untracked), "\n") {
+	for _, f := range strings.Split(untracked, "\x00") {
 		if f != "" {
 			files = append(files, "+ "+f)
 		}

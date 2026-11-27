@@ -204,13 +204,14 @@ func TestDiffSections(t *testing.T) {
 	git("add", "staged.txt")
 	write("staged.txt", "new\nand edited\n") // also an unstaged change on top
 	write("loose.txt", "untracked\n")
+	write("naïve.txt", "untracked\n") // git quotes such names unless asked for raw ones
 
 	lines, err := Git{}.Diff(context.Background(), "tmp", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := strings.Join(lines, "\n")
-	for _, want := range []string{"## Staged changes", "+new", "## Unstaged changes", "+and edited", "## Untracked files", "+ loose.txt"} {
+	for _, want := range []string{"## Staged changes", "+new", "## Unstaged changes", "+and edited", "## Untracked files", "+ loose.txt", "+ naïve.txt"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("diff missing %q:\n%s", want, out)
 		}
