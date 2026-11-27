@@ -157,6 +157,9 @@ func TestSupported(t *testing.T) {
 	if Supported(env(map[string]string{"TERM_PROGRAM": "ghostty", "TMUX": "/tmp/x"})) {
 		t.Fatal("inside tmux images are off")
 	}
+	if Supported(env(map[string]string{"TERM_PROGRAM": "ghostty", "NO_COLOR": "1"})) {
+		t.Fatal("NO_COLOR strips the colour a placeholder names its picture by")
+	}
 	if Supported(env(map[string]string{"TERM_PROGRAM": "Apple_Terminal"})) {
 		t.Fatal("Terminal.app has no Kitty graphics")
 	}

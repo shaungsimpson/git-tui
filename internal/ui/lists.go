@@ -337,7 +337,16 @@ func (m *Model) repoCommits() []gitx.Commit {
 	if r == nil {
 		return nil
 	}
-	return slices.Concat(m.commitsMatching(viewRepo, r.incoming.val), m.commitsMatching(viewRepo, r.log.val))
+	return slices.Concat(m.commitsMatching(viewRepo, incoming(r)), m.commitsMatching(viewRepo, r.log.val))
+}
+
+// incoming is what the upstream branch has that HEAD lacks. A branch without an upstream has none, though the
+// last load, from the branch checked out before, is kept.
+func incoming(r *repoState) []gitx.Commit {
+	if !r.summary.val.HasAB {
+		return nil
+	}
+	return r.incoming.val
 }
 
 // incomingRows is how many rows at the top of the Repository list are incoming commits.
@@ -346,7 +355,7 @@ func (m *Model) incomingRows() int {
 	if r == nil {
 		return 0
 	}
-	return len(m.commitsMatching(viewRepo, r.incoming.val))
+	return len(m.commitsMatching(viewRepo, incoming(r)))
 }
 
 func (m *Model) tagList() []gitx.Tag {
@@ -374,6 +383,10 @@ func (m *Model) rowKeys(v viewID) []string {
 	case viewRepo:
 		for _, c := range m.repoCommits() {
 			keys = append(keys, c.Repo+"/"+c.Hash)
+		}
+	case viewTags:
+		for _, t := range m.tagList() {
+			keys = append(keys, t.Name)
 		}
 	case viewEnvs: // the open commit list keeps its own cursor, so this one always tracks environment rows
 		for _, e := range m.envList() {

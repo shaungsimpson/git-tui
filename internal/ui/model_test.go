@@ -131,6 +131,19 @@ func TestDetailPageKeepsItsItemOnRefresh(t *testing.T) {
 	}
 }
 
+// A new tag lands above the open one: the page stays on its tag rather than showing the newcomer.
+func TestTagPageKeepsItsTagOnRefresh(t *testing.T) {
+	m := setup(t, demoOpts(), 140, 40)
+	press(m, "shift+tab", "j", "tab", "g", "t", "j", "v") // backend, its second-newest tag
+	r := m.selected()
+	want := m.tagList()[m.cursor[viewTags]]
+	newer := gitx.Tag{Name: "v9.0.0", Commit: want.Commit, When: r.tags.val[0].When.Add(time.Hour)}
+	m.Update(answer(&r.tags, kindTags, m.repo-1, append([]gitx.Tag{newer}, r.tags.val...), nil))
+	if got := m.tagList()[m.cursor[viewTags]]; !m.inspect || got.Name != want.Name {
+		t.Fatalf("a refresh swapped the open tag page from %s to %s", want.Name, got.Name)
+	}
+}
+
 func TestDetailPageEmptiedList(t *testing.T) {
 	m := setup(t, demoOpts(), 140, 40)
 	press(m, "g", "d", "v")

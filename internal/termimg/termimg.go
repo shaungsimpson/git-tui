@@ -31,9 +31,10 @@ const (
 )
 
 // Supported reports whether the terminal draws Kitty Unicode placeholders. tmux is left out (it would need
-// passthrough), and so are terminals not yet tested with placeholders, such as WezTerm.
+// passthrough), and so are terminals not yet tested with placeholders, such as WezTerm. So is a terminal told to
+// drop colour: a placeholder names its picture by colour, so without it the picture is an empty box.
 func Supported(getenv func(string) string) bool {
-	if getenv("TMUX") != "" {
+	if getenv("TMUX") != "" || getenv("NO_COLOR") != "" {
 		return false
 	}
 	return getenv("TERM_PROGRAM") == "ghostty" || getenv("KITTY_WINDOW_ID") != "" || getenv("TERM") == "xterm-kitty"
