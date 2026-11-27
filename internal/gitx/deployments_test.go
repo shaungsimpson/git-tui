@@ -45,6 +45,46 @@ func TestParseDeployments(t *testing.T) {
 	}
 }
 
+func TestDeploymentsPassNamesAsVariables(t *testing.T) {
+	hostile := `x"){a}`
+	// The first call lists the environments; the second answers e0 with commit a… and e1 with commit b….
+	log := fakeGH(t, `case "$*" in
+*"environments(first"*) printf '%s\n' 'x"){a}' prod ;;
+*) a=$(printf 'a%.0s' $(seq 40)); b=$(printf 'b%.0s' $(seq 40))
+   echo '{"data":{"repository":{"e0":{"nodes":[{"state":"ACTIVE","commitOid":"'$a'","createdAt":"2026-01-02T00:00:00Z"}]},"e1":{"nodes":[{"state":"ACTIVE","commitOid":"'$b'","createdAt":"2026-01-01T00:00:00Z"}]}}}}' ;;
+esac`)
+	deps, err := Git{}.Deployments(context.Background(), "r", originRepo(t, "acme/r"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := ghCalls(t, log)
+	if len(calls) != 2 {
+		t.Fatalf("want 2 gh calls, got %q", calls)
+	}
+	for i, a := range calls[1] {
+		// "{a}" survives any escaping, so it catches the name written into the query text in any form.
+		if strings.Contains(a, "{a}") && (a != "e0="+hostile || calls[1][i-1] != "-f") {
+			t.Fatalf("an environment name may only travel as the -f e0= variable, found in %q", a)
+		}
+	}
+	if !slices.Contains(calls[1], "e0="+hostile) || !slices.Contains(calls[1], "e1=prod") {
+		t.Fatalf("names not passed as e0 and e1: %q", calls[1])
+	}
+	query := calls[1][slices.IndexFunc(calls[1], func(a string) bool { return strings.HasPrefix(a, "query=") })]
+	for _, alias := range []string{"e0:deployments(environments:[$e0]", "e1:deployments(environments:[$e1]"} {
+		if !strings.Contains(query, alias) { // ParseDeployments reads alias eN as the environment in variable eN
+			t.Fatalf("query lacks %q: %s", alias, query)
+		}
+	}
+	byEnv := map[string]string{}
+	for _, d := range deps {
+		byEnv[d.Environment] = d.Commit[:1]
+	}
+	if byEnv[hostile] != "a" || byEnv["prod"] != "b" {
+		t.Fatalf("aliases read back for the wrong environments: %v", byEnv)
+	}
+}
+
 func TestIsCommitID(t *testing.T) {
 	for in, want := range map[string]bool{
 		strings.Repeat("a", 40): true, strings.Repeat("0", 64): true, "abc123": false,
